@@ -1,7 +1,9 @@
-collectd-logster
+collectd-kairosdb
 ================
 
 A [KairosDB](https://code.google.com/p/kairosdb/) plugin for [collectd](http://collectd.org) using collectd's [Python plugin](http://collectd.org/documentation/manpages/collectd-python.5.shtml). 
+
+This is based on the [collectd-carbon](https://github.com/indygreg/collectd-carbon) plugin
 
 Install
 -------
