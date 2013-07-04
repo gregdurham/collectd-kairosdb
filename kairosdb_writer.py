@@ -14,6 +14,7 @@
 #
 import collectd
 import socket
+import re
 from string import maketrans
 from time import time
 from traceback import format_exc
@@ -23,6 +24,7 @@ port = None
 prefix = None
 types = {}
 postfix = None
+tags = ""
 host_separator = "_"
 metric_separator = "."
 protocol = "tcp"
@@ -84,7 +86,8 @@ def sanitize_field(field):
 
 def kairosdb_config(c):
     global host, port, prefix, postfix, host_separator, \
-            metric_separator, lowercase_metric_names, protocol
+            metric_separator, lowercase_metric_names, protocol, \
+            tags
 
     for child in c.children:
         if child.key == 'KairosDBHost':
@@ -106,6 +109,9 @@ def kairosdb_config(c):
             metric_separator = child.values[0]
         elif child.key == 'KairosDBProtocol':
             protocol = str(child.values[0])
+        elif child.key == 'Tags':
+            for v in child.values:
+                tags += "%s " % (v)
 
     if not host:
         raise Exception('KairosDBHost not defined')
@@ -200,13 +206,14 @@ def kairosdb_write(v, data=None):
     if len(v_type) != len(v.values):
         collectd.warning('kairosdb_writer: differing number of values for type %s' % v.type)
         return
-
+    
+    if tags:
+        tags = tags.replace('.', host_separator)
+    
     metric_fields = []
     if prefix:
         metric_fields.append(prefix)
-
-    metric_fields.append(v.host.replace('.', host_separator))
-
+    
     if postfix is not None:
         metric_fields.append(postfix)
 
@@ -237,7 +244,8 @@ def kairosdb_write(v, data=None):
         new_value = value
 
         if new_value is not None:
-            line = 'put %s %d %f' % ( metric, time, new_value )
+            line = 'put %s %d %f %s' % ( metric, time, new_value, tags)
+            collectd.warning(line)
             lines.append(line)
 
         i += 1
