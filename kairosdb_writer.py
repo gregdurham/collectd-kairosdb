@@ -244,7 +244,7 @@ def kairosdb_write(v, data=None):
 
         if new_value is not None:
             line = 'put %s %d %f %s' % ( metric, time, new_value, tags)
-            collectd.warning(line)
+            collectd.debug(line)
             lines.append(line)
 
         i += 1
