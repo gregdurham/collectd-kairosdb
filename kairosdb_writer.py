@@ -208,12 +208,12 @@ def kairosdb_write(v, data=None):
     if len(v_type) != len(v.values):
         collectd.warning('kairosdb_writer: differing number of values for type %s' % v.type)
         return
-    
+
     metric_fields = []
     if prefix:
         metric_fields.append(prefix)
-    
-    if postfix is not None:
+
+    if postfix:
         metric_fields.append(postfix)
 
     metric_fields.append(v.plugin)
