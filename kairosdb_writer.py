@@ -214,6 +214,8 @@ def kairosdb_write(v, data=None):
     if prefix:
         metric_fields.append(prefix)
 
+    metric_fields.append(v.host.replace('.', host_separator))
+
     if postfix:
         metric_fields.append(postfix)
 
