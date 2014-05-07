@@ -222,7 +222,7 @@ def kairosdb_write(v, data=None):
     if v.plugin_instance:
         # The "plugin instance" is used for plugins that collect the same
         # stats from multiple instances of a thing. For example: ethernet
-        # interfaces, cpus and disks. Since — for example — we want to be
+        # interfaces, cpus and disks. Since - for example - we want to be
         # able to easily sum total tx bytes we will make this a tag!
         instance_tags.append("instance=%s" % sanitize_field(v.plugin_instance))
 
