@@ -1,7 +1,7 @@
 collectd-kairosdb
 ================
 
-A [KairosDB](https://code.google.com/p/kairosdb/) plugin for [collectd](http://collectd.org) using collectd's [Python plugin](http://collectd.org/documentation/manpages/collectd-python.5.shtml). 
+A [KairosDB](https://code.google.com/p/kairosdb/) plugin for [collectd](http://collectd.org) using collectd's [Python plugin](http://collectd.org/documentation/manpages/collectd-python.5.shtml).
 
 This is based on the [collectd-carbon](https://github.com/indygreg/collectd-carbon) plugin
 
@@ -30,7 +30,6 @@ Add the following to your collectd config **or** use the included kairosdb.conf.
             KairosDBProtocol "tcp"
             LowercaseMetricNames true
             TypesDB "/usr/share/collectd/types.db" "/etc/collectd/types/custom.db"
+            #Tags "host=foobar" "role=appserver"
         </Module>
     </Plugin>
-
-
