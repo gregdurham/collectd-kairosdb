@@ -160,7 +160,7 @@ def kairosdb_connect(data):
             result = False
             collectd.warning('error connecting socket: %s' % format_exc())
     else:
-        # we're either connected, or protocol does not == tcp. we will send 
+        # we're either connected, or protocol does not == tcp. we will send
         # data via udp/SOCK_DGRAM call.
         result = True
 
@@ -171,6 +171,7 @@ def kairosdb_write_data(data, s):
     data['lock'].acquire()
 
     try:
+        #collectd.info("Sent %s" % s)
         if protocol.lower() == 'tcp':
             data['sock'].sendall(s)
         else:
@@ -210,6 +211,7 @@ def kairosdb_write(v, data=None):
         return
 
     metric_fields = []
+    instance_tags = []
     if prefix:
         metric_fields.append(prefix)
 
@@ -218,7 +220,11 @@ def kairosdb_write(v, data=None):
 
     metric_fields.append(v.plugin)
     if v.plugin_instance:
-        metric_fields.append(sanitize_field(v.plugin_instance))
+        # The "plugin instance" is used for plugins that collect the same
+        # stats from multiple instances of a thing. For example: ethernet
+        # interfaces, cpus and disks. Since — for example — we want to be
+        # able to easily sum total tx bytes we will make this a tag!
+        instance_tags.append("instance=%s" % sanitize_field(v.plugin_instance))
 
     metric_fields.append(v.type)
     if v.type_instance:
@@ -236,6 +242,8 @@ def kairosdb_write(v, data=None):
         ds_type = v_type[i][1]
 
         path_fields = metric_fields[:]
+        # Appending "value" onto the end of everything seems silly. Don't!
+        if ds_name != "value":
         path_fields.append(ds_name)
 
         metric = '.'.join(path_fields)
@@ -243,7 +251,7 @@ def kairosdb_write(v, data=None):
         new_value = value
 
         if new_value is not None:
-            line = 'put %s %d %f %s' % ( metric, time, new_value, tags)
+            line = 'put %s %d %f %s %s' % ( metric, time, new_value, ' '.join(instance_tags), tags)
             collectd.debug(line)
             lines.append(line)
 
