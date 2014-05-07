@@ -244,7 +244,7 @@ def kairosdb_write(v, data=None):
         path_fields = metric_fields[:]
         # Appending "value" onto the end of everything seems silly. Don't!
         if ds_name != "value":
-        path_fields.append(ds_name)
+            path_fields.append(ds_name)
 
         metric = '.'.join(path_fields)
 
