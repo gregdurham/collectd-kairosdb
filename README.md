@@ -32,5 +32,22 @@ Add the following to your collectd config **or** use the included kairosdb.conf.
             TypesDB "/usr/share/collectd/types.db" "/etc/collectd/types/custom.db"
         </Module>
     </Plugin>
+    
+
+### Properties
+     KairosDBHost - host name or IP address of KairosDB server.
+     KairosDBPort - KairosDB server port.
+     TypesDB - ???
+     LowercaseMetricNames - lower cases the metric name if True.
+     MetricPrefix - prefix of the metric name.
+     HostPostfix - appended to the hostname as part of the metric name.
+     HostSeparator - separator character used between host name parts.
+     MetricSeparator - separator character used between metric name parts. 
+     KairosDBProtocol - how the metrics are sent to KairosDB. The options are TELNET or HTTP.
+     Tags - KairosDB tags to send
+     MetricName - collectd.%(hostname)s.%(metric)s.%(type)s.otherstuff
+   
+
+
 
 
