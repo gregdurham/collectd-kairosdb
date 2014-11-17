@@ -105,7 +105,7 @@ def kairosdb_config(c):
             for v in child.values:
                 kairosdb_parse_types_file(v)
         elif child.key == 'LowercaseMetricNames':
-            lowercase_metric_names = True
+            lowercase_metric_names = child.values[0]
         elif child.key == 'MetricName':
             metric_name = str(child.values[0])
         elif child.key == 'HostSeparator':
@@ -113,7 +113,7 @@ def kairosdb_config(c):
         elif child.key == 'MetricSeparator':
             metric_separator = child.values[0]
         elif child.key == 'KairosDBProtocol':
-            protocol = str(child.values[0])
+            protocol = str(child.values[0]).lower()
         elif child.key == 'Tags':
             for v in child.values:
                 tags_string += "%s " % v
@@ -129,8 +129,10 @@ def kairosdb_config(c):
     if not tags_string:
         raise Exception('Tags not defined')
 
-    collectd.info('Initializing kairosdb_writer client in %s socket mode.'
-                  % protocol.upper())
+    if protocol != 'http' and protocol != 'telnet':
+        raise Exception('Invalid protocol specified. Must be either "http" or "telnet"')
+
+    collectd.info('Initializing kairosdb_writer client in %s mode.' % protocol.upper())
 
 
 def kairosdb_init():
@@ -152,11 +154,11 @@ def kairosdb_init():
 
 
 def kairosdb_connect(data):
-    if not data['conn'] and protocol.lower() == 'http':
+    if not data['conn'] and protocol == 'http':
         data['conn'] = httplib.HTTPConnection(host, port)
         return True
 
-    if not data['conn'] and protocol.lower() == 'telnet':
+    elif not data['conn'] and protocol == 'telnet':
         # only attempt reconnect every 10 seconds if protocol of type Telnet
         now = time()
         if now - data['last_connect_time'] < 10:
@@ -172,8 +174,6 @@ def kairosdb_connect(data):
             collectd.error('error connecting socket: %s' % format_exc())
             return False
     else:
-        # we're either connected, or protocol does not == telnet. we will send
-        # data via udp/SOCK_DGRAM call.
         return True
 
 
@@ -182,13 +182,9 @@ def kairosdb_send_telnet_data(data, s):
     data['lock'].acquire()
 
     try:
-        if protocol.lower() == 'telnet':
+        if protocol == 'telnet':
             data['conn'].sendall(s)
-        else:
-            # send message to via UDP to the line receiver .
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.sendto(s, (host, port))
-        result = True
+            result = True
     except socket.error, e:
         data['conn'] = None
         if isinstance(e.args, tuple):
@@ -241,7 +237,7 @@ def kairosdb_send_http_data(data, json):
 
 def kairosdb_write(v, data=None):
     data['lock'].acquire()
-    if not kairosdb_connect(data) and (protocol.lower() == 'telnet' or protocol.lower() == 'http'):
+    if not kairosdb_connect(data) and (protocol == 'telnet' or protocol == 'http'):
         data['lock'].release()
         collectd.warning('kairosdb_writer: no connection to kairosdb server')
         return
@@ -280,7 +276,7 @@ def kairosdb_write(v, data=None):
     name = name.replace('..', '.')
     name = name.rstrip('.')
 
-    if protocol.lower() == 'http':
+    if protocol == 'http':
         kairosdb_write_http_metrics(data, v_type, v, name, tags)
     else:
         kairosdb_write_telnet_metrics(data, v_type, v, name, tags)

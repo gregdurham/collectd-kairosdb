@@ -36,17 +36,17 @@ Add the following to your collectd config **or** use the included kairosdb.conf.
 
 ### Properties
 **AddHostTag** - adds a host tag if true. True by default.  
-**HostSeparator** - separator character used between host name parts.  
-**LowercaseMetricNames** - lower cases the metric name if true.  
-**KairosDBHost** - host name or IP address of KairosDB server.  
-**KairosDBPort** - KairosDB server port.  
-**KairosDBProtocol** - specifies how the metrics are sent to KairosDB. The options are TELNET or HTTP.  
+**HostSeparator** - separator character used between host name parts. Defaults to underscore("_").    
+**LowercaseMetricNames** - lower cases the metric name if true. Defaults to false.  
+**KairosDBHost** - host name or IP address of KairosDB server. Required.   
+**KairosDBPort** - KairosDB server port. Required  
+**KairosDBProtocol** - specifies how the metrics are sent to KairosDB. The options are TELNET or HTTP. Required.    
 **TypesDB** - ???  
 **MetricName** - the name of the metric. This is built using pre-defined variables. See [Naming Schema](https://collectd.org/wiki/index.php/Naming_schema) for information about these variables. 
   For example, if the metric name is set to "collectd.%(plugin)s.%(plugin_instance)s.%(type)s.otherstuff", this will produce a metric name that looks like this 
   "collectd.processes.ps_state.blocked.value.otherstuff". The pre-defined variables are *host*, *plugin*, *plugin_instance*, *type*, and *type_instance*. The default is "collectd.%(plugin)s.%(plugin_instance)s.%(type)s.%(type_instance)s".  
-**MetricSeparator** - separator character used between metric name parts.     
-**Tags** - KairosDB tags to send  
+**MetricSeparator** - separator character used between metric name parts. Defaults to a period(".").     
+**Tags** - KairosDB tags to send. At least one tag is required. The host name is added as a tag by default unless AddHostTag is set to false.    
 
 
 
