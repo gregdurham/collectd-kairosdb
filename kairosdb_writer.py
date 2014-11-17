@@ -1,7 +1,7 @@
-#  Copyright 2013 Gregory Durham
+# Copyright 2013 Gregory Durham
 #
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at
 #
 #      http://www.apache.org/licenses/LICENSE-2.0
@@ -19,16 +19,16 @@ from string import maketrans
 from time import time
 from traceback import format_exc
 
+add_host_tag = True
 host = None
 port = None
-prefix = None
 types = {}
-postfix = None
-metric_name = "collectd.%(hostname).%(metric).%(type)"
-tags = ""
+metric_name = 'collectd.%(plugin)s.%(plugin_instance)s.%(type)s.%(type_instance)s'
+tags_string = ""
 host_separator = "_"
 metric_separator = "."
 protocol = "telnet"
+
 
 def kairosdb_parse_types_file(path):
     global types
@@ -51,7 +51,7 @@ def kairosdb_parse_types_file(path):
             ds_fields = ds.split(':')
 
             if len(ds_fields) != 4:
-                collectd.warning('kairosdb_writer: cannot parse data source %s on type %s' % ( ds, type_name ))
+                collectd.warning('kairosdb_writer: cannot parse data source %s on type %s' % (ds, type_name))
                 continue
 
             v.append(ds_fields)
@@ -59,6 +59,7 @@ def kairosdb_parse_types_file(path):
         types[type_name] = v
 
     f.close()
+
 
 def str_to_num(s):
     """
@@ -73,6 +74,7 @@ def str_to_num(s):
 
     return n
 
+
 def sanitize_field(field):
     """
     Santize Metric Fields: replace dot and space with metric_separator. Delete
@@ -86,16 +88,16 @@ def sanitize_field(field):
         field = field.lower()
     return field
 
-def kairosdb_config(c):
-    global host, port, prefix, postfix, host_separator, \
-            metric_separator, lowercase_metric_names, protocol, \
-            tags
 
-    #todo Add host name as a tag by default or based on a property
-    #todo Don't add hostname to the metric name unless specified
+def kairosdb_config(c):
+    global host, port, host_separator, \
+        metric_separator, lowercase_metric_names, protocol, \
+        tags_string, metric_name, add_host_tag
 
     for child in c.children:
-        if child.key == 'KairosDBHost':
+        if child.key == 'AddHostTag':
+            add_host_tag = child.values[0]
+        elif child.key == 'KairosDBHost':
             host = child.values[0]
         elif child.key == 'KairosDBPort':
             port = int(child.values[0])
@@ -105,11 +107,7 @@ def kairosdb_config(c):
         elif child.key == 'LowercaseMetricNames':
             lowercase_metric_names = True
         elif child.key == 'MetricName':
-            metric_name = child.values[0]
-        elif child.key == 'MetricPrefix':
-            prefix = child.values[0]
-        elif child.key == 'HostPostfix':
-            postfix = child.values[0]
+            metric_name = str(child.values[0])
         elif child.key == 'HostSeparator':
             host_separator = child.values[0]
         elif child.key == 'MetricSeparator':
@@ -118,9 +116,9 @@ def kairosdb_config(c):
             protocol = str(child.values[0])
         elif child.key == 'Tags':
             for v in child.values:
-                tags += "%s " % (v)
+                tags_string += "%s " % v
 
-    tags = tags.replace('.', host_separator)
+    tags_string = tags_string.replace('.', host_separator)
 
     if not host:
         raise Exception('KairosDBHost not defined')
@@ -128,11 +126,12 @@ def kairosdb_config(c):
     if not port:
         raise Exception('KairosDBPort not defined')
 
-    if not tags:
+    if not tags_string:
         raise Exception('Tags not defined')
 
     collectd.info('Initializing kairosdb_writer client in %s socket mode.'
-                         % protocol.upper() )
+                  % protocol.upper())
+
 
 def kairosdb_init():
     import threading
@@ -143,13 +142,14 @@ def kairosdb_init():
         'lowercase_metric_names': lowercase_metric_names,
         'conn': None,
         'lock': threading.Lock(),
-        'values': { },
+        'values': {},
         'last_connect_time': 0
     }
 
     kairosdb_connect(d)
 
     collectd.register_write(kairosdb_write, data=d)
+
 
 def kairosdb_connect(data):
     if not data['conn'] and protocol.lower() == 'http':
@@ -163,18 +163,19 @@ def kairosdb_connect(data):
             return False
 
         data['last_connect_time'] = now
-        collectd.info('connecting to %s:%s' % ( data['host'], data['port'] ) )
+        collectd.info('connecting to %s:%s' % (data['host'], data['port']))
         try:
             data['conn'] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             data['conn'].connect((host, port))
             return True
         except:
-            collectd.warning('error connecting socket: %s' % format_exc())
+            collectd.error('error connecting socket: %s' % format_exc())
             return False
     else:
         # we're either connected, or protocol does not == telnet. we will send
         # data via udp/SOCK_DGRAM call.
         return True
+
 
 def kairosdb_send_telnet_data(data, s):
     result = False
@@ -200,6 +201,7 @@ def kairosdb_send_telnet_data(data, s):
     data['lock'].release()
     return result
 
+
 def kairosdb_send_http_data(data, json):
     collectd.debug('Json=%s' % json)
     data['lock'].acquire()
@@ -210,7 +212,7 @@ def kairosdb_send_http_data(data, json):
         data['conn'].request('POST', '/api/v1/datapoints', json, headers)
         res = data['conn'].getresponse()
         response = res.read()
-        collectd.debug('Response code: %d'% res.status)
+        collectd.debug('Response code: %d' % res.status)
 
         if res.status == 204:
             exit_code = True
@@ -230,7 +232,7 @@ def kairosdb_send_http_data(data, json):
         exit_code = False
 
     except Exception, e:
-        collectd.error('Error sending http data: %s' %str(e))
+        collectd.error('Error sending http data: %s' % str(e))
         exit_code = False
 
     data['lock'].release()
@@ -256,48 +258,50 @@ def kairosdb_write(v, data=None):
         collectd.warning('kairosdb_writer: differing number of values for type %s' % v.type)
         return
 
-    metric_fields = []
-    if prefix:
-        metric_fields.append(prefix)
+    hostname = v.host.replace('.', host_separator)
 
-    metric_fields.append(v.host.replace('.', host_separator))
+    tags = tags_string
+    if add_host_tag:
+        tags += "host=%s" % hostname
 
-    if postfix:
-        metric_fields.append(postfix)
-
-    metric_fields.append(v.plugin)
+    plugin = v.plugin
+    plugin_instance = ''
     if v.plugin_instance:
-        metric_fields.append(sanitize_field(v.plugin_instance))
+        plugin_instance = sanitize_field(v.plugin_instance)
 
-    metric_fields.append(v.type)
+    type_name = v.type
+    type_instance = ''
     if v.type_instance:
-        metric_fields.append(sanitize_field(v.type_instance))
+        type_instance = sanitize_field(v.type_instance)
+
+    name = metric_name % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type_name, 'type_instance': type_instance}
+
+    # Remove dots for missing pieces
+    name = name.replace('..', '.')
+    name = name.rstrip('.')
 
     if protocol.lower() == 'http':
-        kairosdb_write_http_metrics(data, v_type, metric_fields, v)
+        kairosdb_write_http_metrics(data, v_type, v, name, tags)
     else:
-        kairosdb_write_telnet_metrics(data, v_type, metric_fields, v)
+        kairosdb_write_telnet_metrics(data, v_type, v, name, tags)
 
-def kairosdb_write_telnet_metrics(data, types, metric_fields, v):
+
+def kairosdb_write_telnet_metrics(data, types_list, v, name, tags):
     # we update shared recorded values, so lock to prevent race conditions
     data['lock'].acquire()
 
-    time = v.time
+    timestamp = v.time
 
     lines = []
     i = 0
     for value in v.values:
-        ds_name = types[i][0]
-
-        path_fields = metric_fields[:]
-        path_fields.append(ds_name)
-
-        metric = '.'.join(path_fields)
-
+        ds_name = types_list[i][0]
+        name += ".%s" % ds_name
         new_value = value
+        collectd.debug("metric name= %s" % name)
 
         if new_value is not None:
-            line = 'put %s %d %f %s' % (metric, time, new_value, tags)
+            line = 'put %s %d %f %s' % (name, timestamp, new_value, tags)
             collectd.debug(line)
             lines.append(line)
 
@@ -308,41 +312,41 @@ def kairosdb_write_telnet_metrics(data, types, metric_fields, v):
     lines.append('')
     kairosdb_send_telnet_data(data, '\n'.join(lines))
 
-def kairosdb_write_http_metrics(data, types, metric_fields, v):
+
+def kairosdb_write_http_metrics(data, types_list, v, name, tags):
     # we update shared recorded values, so lock to prevent race conditions
     data['lock'].acquire()
 
-    time = v.time * 1000
+    timestamp = v.time * 1000
     json = '['
     i = 0
     for value in v.values:
-        ds_name = types[i][0]
-        path_fields = metric_fields[:]
-        path_fields.append(ds_name)
-        metric = '.'.join(path_fields)
+        ds_name = types_list[i][0]
+        name += ".%s" % ds_name
         new_value = value
+        collectd.debug("metric name= %s" % name)
 
         if new_value is not None:
             if i > 0:
                 json += ','
 
             json += '{'
-            json += '"name":"%s",' % (metric)
-            json += '"datapoints":[[%d, %f]],' % (time, new_value)
+            json += '"name":"%s",' % name
+            json += '"datapoints":[[%d, %f]],' % (timestamp, new_value)
             json += '"tags": {'
 
-            tagList = tags.split(' ')
+            tag_list = tags.split(' ')
             first = True
-            for tag in tagList:
+            for tag in tag_list:
                 if tag:
                     if first:
                         first = False
                     else:
                         json += ", "
 
-                    tagParts = tag.split("=")
-                    if len(tagParts) == 2:
-                        json += '"%s": "%s"' % (tagParts[0], tagParts[1])
+                    tag_parts = tag.split("=")
+                    if len(tag_parts) == 2:
+                        json += '"%s": "%s"' % (tag_parts[0], tag_parts[1])
                     else:
                         collectd.error("Invalid tag: %s" % tag)
             json += '}'
@@ -353,7 +357,10 @@ def kairosdb_write_http_metrics(data, types, metric_fields, v):
     data['lock'].release()
 
     json += ']'
+
+    collectd.debug(json)
     kairosdb_send_http_data(data, json)
+
 
 collectd.register_config(kairosdb_config)
 collectd.register_init(kairosdb_init)
