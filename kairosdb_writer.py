@@ -292,12 +292,12 @@ def kairosdb_write_telnet_metrics(data, types_list, v, name, tags):
     i = 0
     for value in v.values:
         ds_name = types_list[i][0]
-        name += ".%s" % ds_name
+        new_name = "%s.%s" % (name, ds_name)
         new_value = value
-        collectd.debug("metric name= %s" % name)
+        collectd.debug("metric new_name= %s" % new_name)
 
         if new_value is not None:
-            line = 'put %s %d %f %s' % (name, timestamp, new_value, tags)
+            line = 'put %s %d %f %s' % (new_name, timestamp, new_value, tags)
             collectd.debug(line)
             lines.append(line)
 
@@ -318,16 +318,16 @@ def kairosdb_write_http_metrics(data, types_list, v, name, tags):
     i = 0
     for value in v.values:
         ds_name = types_list[i][0]
-        name += ".%s" % ds_name
+        new_name = "%s.%s" % (name, ds_name)
         new_value = value
-        collectd.debug("metric name= %s" % name)
+        collectd.debug("metric new_name= %s" % new_name)
 
         if new_value is not None:
             if i > 0:
                 json += ','
 
             json += '{'
-            json += '"name":"%s",' % name
+            json += '"name":"%s",' % new_name
             json += '"datapoints":[[%d, %f]],' % (timestamp, new_value)
             json += '"tags": {'
 
