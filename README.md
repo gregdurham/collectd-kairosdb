@@ -36,6 +36,9 @@ Add the following to your collectd config **or** use the included kairosdb.conf.
 
 ### Properties
 **AddHostTag** - adds a host tag if true. True by default.  
+**Formatter** - the full path to a formatter. A formatter is python code used to modify the metric name and/or the tags. The formatter must contain a function named
+  "format". It takes the metric name as specified in this file, the tags, hostname, plugin, plugin_instance, type, and type_instance and returns the metric name and the tags. 
+  A formatter could be used to pull out of the metric name something that should be a tag. See the ./examples/cassandraFormatter.py for an example.
 **HostSeparator** - separator character used between host name parts. Defaults to underscore("_").    
 **LowercaseMetricNames** - lower cases the metric name if true. Defaults to false.  
 **KairosDBHost** - host name or IP address of KairosDB server. Required.   
@@ -46,7 +49,8 @@ Add the following to your collectd config **or** use the included kairosdb.conf.
   For example, if the metric name is set to "collectd.%(plugin)s.%(plugin_instance)s.%(type)s.otherstuff", this will produce a metric name that looks like this 
   "collectd.processes.ps_state.blocked.value.otherstuff". The pre-defined variables are *host*, *plugin*, *plugin_instance*, *type*, and *type_instance*. The default is "collectd.%(plugin)s.%(plugin_instance)s.%(type)s.%(type_instance)s".  
 **MetricSeparator** - separator character used between metric name parts. Defaults to a period(".").     
-**Tags** - KairosDB tags to send. At least one tag is required. The host name is added as a tag by default unless AddHostTag is set to false.    
+**Tags** - KairosDB tags to send. At least one tag is required. The host name is added as a tag by default unless AddHostTag is set to false. For example, "customer=acme"
+
 
 
 

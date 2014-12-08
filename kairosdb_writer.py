@@ -15,6 +15,7 @@
 import collectd
 import socket
 import httplib
+import imp
 from string import maketrans
 from time import time
 from traceback import format_exc
@@ -28,6 +29,7 @@ tags_string = ""
 host_separator = "_"
 metric_separator = "."
 protocol = "telnet"
+formatter = None
 
 
 def kairosdb_parse_types_file(path):
@@ -92,7 +94,7 @@ def sanitize_field(field):
 def kairosdb_config(c):
     global host, port, host_separator, \
         metric_separator, lowercase_metric_names, protocol, \
-        tags_string, metric_name, add_host_tag
+        tags_string, metric_name, add_host_tag, formatter
 
     for child in c.children:
         if child.key == 'AddHostTag':
@@ -114,6 +116,13 @@ def kairosdb_config(c):
             metric_separator = child.values[0]
         elif child.key == 'KairosDBProtocol':
             protocol = str(child.values[0]).lower()
+        elif child.key == 'Formatter':
+            formatter_path = child.values[0]
+            try:
+                formatter = imp.load_source('formatter', formatter_path)
+                # formatter = source.Formatter()
+            except:
+                raise Exception('Could not load formatter %s %s' % (formatter_path, format_exc()))
         elif child.key == 'Tags':
             for v in child.values:
                 tags_string += "%s " % v
@@ -270,7 +279,11 @@ def kairosdb_write(v, data=None):
     if v.type_instance:
         type_instance = sanitize_field(v.type_instance)
 
-    name = metric_name % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type_name, 'type_instance': type_instance}
+    if formatter:
+        name, tags = formatter.format(metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
+        # tags = formatter.format_tags(hostname, plugin, plugin_instance, type_name, type_instance, tags)
+    else:
+        name = metric_name % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type_name, 'type_instance': type_instance}
 
     # Remove dots for missing pieces
     name = name.replace('..', '.')
