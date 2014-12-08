@@ -2,7 +2,7 @@
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
+# You may obtain a copy of the License at
 #
 #      http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -281,7 +281,6 @@ def kairosdb_write(v, data=None):
 
     if formatter:
         name, tags = formatter.format(metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
-        # tags = formatter.format_tags(hostname, plugin, plugin_instance, type_name, type_instance, tags)
     else:
         name = metric_name % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type_name, 'type_instance': type_instance}
 
