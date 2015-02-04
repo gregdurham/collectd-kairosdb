@@ -9,6 +9,6 @@
 def format(metric_name_template, tags, hostname, plugin, plugin_instance, type, type_instance):
     if plugin == 'column_family':
         metric_name_template = metric_name_template.replace('%(plugin_instance)s.', '')
-        tags += ' column_family=%s' % plugin_instance
+        tags['column_family'] = plugin_instance
         plugin = 'cassandra'
     return (metric_name_template % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type, 'type_instance': type_instance}, tags)

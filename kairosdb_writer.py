@@ -25,7 +25,7 @@ host = None
 port = None
 types = {}
 metric_name = 'collectd.%(plugin)s.%(plugin_instance)s.%(type)s.%(type_instance)s'
-tags_string = ""
+tags_map = {}
 host_separator = "_"
 metric_separator = "."
 protocol = "telnet"
@@ -94,7 +94,7 @@ def sanitize_field(field):
 def kairosdb_config(c):
     global host, port, host_separator, \
         metric_separator, lowercase_metric_names, protocol, \
-        tags_string, metric_name, add_host_tag, formatter
+        tags_map, metric_name, add_host_tag, formatter
 
     for child in c.children:
         if child.key == 'AddHostTag':
@@ -125,9 +125,11 @@ def kairosdb_config(c):
                 raise Exception('Could not load formatter %s %s' % (formatter_path, format_exc()))
         elif child.key == 'Tags':
             for v in child.values:
-                tags_string += "%s " % v
-
-    tags_string = tags_string.replace('.', host_separator)
+                tag_parts = v.split("=")
+                if len(tag_parts) == 2:
+                    tags_map[tag_parts[0]] = tag_parts[1]
+                else:
+                    collectd.error("Invalid tag: %s" % tag)
 
     if not host:
         raise Exception('KairosDBHost not defined')
@@ -135,7 +137,7 @@ def kairosdb_config(c):
     if not port:
         raise Exception('KairosDBPort not defined')
 
-    if not tags_string:
+    if not tags_map and not add_host_tag :
         raise Exception('Tags not defined')
 
     if protocol != 'http' and protocol != 'telnet':
@@ -265,9 +267,9 @@ def kairosdb_write(v, data=None):
 
     hostname = v.host.replace('.', host_separator)
 
-    tags = tags_string
+    tags = tags_map.copy()
     if add_host_tag:
-        tags += "host=%s" % hostname
+        tags['host'] = hostname
 
     plugin = v.plugin
     plugin_instance = ''
@@ -292,6 +294,7 @@ def kairosdb_write(v, data=None):
         kairosdb_write_http_metrics(data, v_type, v, name, tags)
     else:
         kairosdb_write_telnet_metrics(data, v_type, v, name, tags)
+        
 
 
 def kairosdb_write_telnet_metrics(data, types_list, v, name, tags):
@@ -299,6 +302,11 @@ def kairosdb_write_telnet_metrics(data, types_list, v, name, tags):
     data['lock'].acquire()
 
     timestamp = v.time
+    
+    tag_string = ""
+    
+    for tn, tv in tags.iteritems():
+        tag_string += "%s=%s " % (tn, tv)
 
     lines = []
     i = 0
@@ -309,7 +317,7 @@ def kairosdb_write_telnet_metrics(data, types_list, v, name, tags):
         collectd.debug("metric new_name= %s" % new_name)
 
         if new_value is not None:
-            line = 'put %s %d %f %s' % (new_name, timestamp, new_value, tags)
+            line = 'put %s %d %f %s' % (new_name, timestamp, new_value, tag_string)
             collectd.debug(line)
             lines.append(line)
 
@@ -343,20 +351,15 @@ def kairosdb_write_http_metrics(data, types_list, v, name, tags):
             json += '"datapoints":[[%d, %f]],' % (timestamp, new_value)
             json += '"tags": {'
 
-            tag_list = tags.split(' ')
             first = True
-            for tag in tag_list:
-                if tag:
-                    if first:
-                        first = False
-                    else:
-                        json += ", "
+            for tn, tv in tags.iteritems():
+                if first:
+                    first = False
+                else:
+                    json += ", "
 
-                    tag_parts = tag.split("=")
-                    if len(tag_parts) == 2:
-                        json += '"%s": "%s"' % (tag_parts[0], tag_parts[1])
-                    else:
-                        collectd.error("Invalid tag: %s" % tag)
+                json += '"%s": "%s"' % (tn, tv)
+                
             json += '}'
 
             json += '}'
