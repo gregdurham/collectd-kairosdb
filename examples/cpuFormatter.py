@@ -15,7 +15,7 @@ def format(metric_name_template, tags, hostname, plugin, plugin_instance, type, 
 		tags['disk'] = plugin_instance
 		
 	if plugin == 'interface':
-		metric_name_template = metric_name_template.replace('%(type)s.', '')
+		metric_name_template = metric_name_template.replace('%(type_instance)s', '')
 		tags['interface'] = type_instance
 		
 	return (metric_name_template % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type, 'type_instance': type_instance}, tags)

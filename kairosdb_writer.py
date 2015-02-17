@@ -191,6 +191,11 @@ def kairosdb_connect(data):
 def kairosdb_send_telnet_data(data, s):
     result = False
     data['lock'].acquire()
+    
+    if not kairosdb_connect(data):
+        data['lock'].release()
+        collectd.warning('kairosdb_writer: no connection to kairosdb server')
+        return
 
     try:
         if protocol == 'telnet':
@@ -212,6 +217,11 @@ def kairosdb_send_telnet_data(data, s):
 def kairosdb_send_http_data(data, json):
     collectd.debug('Json=%s' % json)
     data['lock'].acquire()
+    
+    if not kairosdb_connect(data):
+        data['lock'].release()
+        collectd.warning('kairosdb_writer: no connection to kairosdb server')
+        return
 
     response = ''
     try:
@@ -247,13 +257,6 @@ def kairosdb_send_http_data(data, json):
 
 
 def kairosdb_write(v, data=None):
-    data['lock'].acquire()
-    if not kairosdb_connect(data) and (protocol == 'telnet' or protocol == 'http'):
-        data['lock'].release()
-        collectd.warning('kairosdb_writer: no connection to kairosdb server')
-        return
-
-    data['lock'].release()
 
     if v.type not in types:
         collectd.warning('kairosdb_writer: do not know how to handle type %s. do you have all your types.db files configured?' % v.type)
@@ -280,6 +283,9 @@ def kairosdb_write(v, data=None):
     type_instance = ''
     if v.type_instance:
         type_instance = sanitize_field(v.type_instance)
+        
+    #collectd.info('plugin %s\n plugin_instance %s\ntype %s\ntype_instance %s' % 
+    #	 (plugin, plugin_instance, type_name, type_instance))
 
     if formatter:
         name, tags = formatter.format(metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
@@ -289,6 +295,8 @@ def kairosdb_write(v, data=None):
     # Remove dots for missing pieces
     name = name.replace('..', '.')
     name = name.rstrip('.')
+    
+    #collectd.info('Metric: %s' % name)
 
     if protocol == 'http':
         kairosdb_write_http_metrics(data, v_type, v, name, tags)
@@ -298,9 +306,6 @@ def kairosdb_write(v, data=None):
 
 
 def kairosdb_write_telnet_metrics(data, types_list, v, name, tags):
-    # we update shared recorded values, so lock to prevent race conditions
-    data['lock'].acquire()
-
     timestamp = v.time
     
     tag_string = ""
@@ -323,16 +328,11 @@ def kairosdb_write_telnet_metrics(data, types_list, v, name, tags):
 
         i += 1
 
-    data['lock'].release()
-
     lines.append('')
     kairosdb_send_telnet_data(data, '\n'.join(lines))
 
 
 def kairosdb_write_http_metrics(data, types_list, v, name, tags):
-    # we update shared recorded values, so lock to prevent race conditions
-    data['lock'].acquire()
-
     timestamp = v.time * 1000
     json = '['
     i = 0
@@ -364,8 +364,6 @@ def kairosdb_write_http_metrics(data, types_list, v, name, tags):
 
             json += '}'
         i += 1
-
-    data['lock'].release()
 
     json += ']'
 
