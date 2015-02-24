@@ -139,7 +139,7 @@ def kairosdb_init():
     if not tags_map and not add_host_tag :
         raise Exception('Tags not defined')
         
-    split = uri.split(':')
+    split = uri.strip('/').split(':')
     #collectd.info(repr(split))
     if len(split) != 3:
         raise Exception('KairosDBURI must be in the format of <protocol>://<host>:<port>')
