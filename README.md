@@ -25,9 +25,7 @@ Add the following to your collectd config **or** use the included kairosdb.conf.
         Import "kairosdb_writer"
 
         <Module "kairosdb_writer">
-            KairosDBHost "localhost"
-            KairosDBPort 4242
-            KairosDBProtocol "telnet"
+            KairosDBURI "telnet://localhost:4242"
             LowercaseMetricNames true
             TypesDB "/usr/share/collectd/types.db" "/etc/collectd/types/custom.db"
         </Module>
@@ -41,9 +39,7 @@ Add the following to your collectd config **or** use the included kairosdb.conf.
   A formatter could be used to pull out of the metric name something that should be a tag. See the ./examples/cassandraFormatter.py for an example.
 **HostSeparator** - separator character used between host name parts. Defaults to underscore("_").    
 **LowercaseMetricNames** - lower cases the metric name if true. Defaults to false.  
-**KairosDBHost** - host name or IP address of KairosDB server. Required.   
-**KairosDBPort** - KairosDB server port. Required  
-**KairosDBProtocol** - specifies how the metrics are sent to KairosDB. The options are TELNET or HTTP. Required.    
+**KairosDBURI** - URI for the Kairos host, must be in the form <protocol>://<host>:<port>.  Protocol may be one of (telnet, http, https). Required.   
 **TypesDB** - ???  
 **MetricName** - the name of the metric. This is built using pre-defined variables. See [Naming Schema](https://collectd.org/wiki/index.php/Naming_schema) for information about these variables. 
   For example, if the metric name is set to "collectd.%(plugin)s.%(plugin_instance)s.%(type)s.otherstuff", this will produce a metric name that looks like this 

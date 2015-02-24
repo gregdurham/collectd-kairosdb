@@ -21,8 +21,7 @@ from time import time
 from traceback import format_exc
 
 add_host_tag = True
-host = None
-port = None
+uri = None
 types = {}
 metric_name = 'collectd.%(plugin)s.%(plugin_instance)s.%(type)s.%(type_instance)s'
 tags_map = {}
@@ -94,15 +93,13 @@ def sanitize_field(field):
 def kairosdb_config(c):
     global host, port, host_separator, \
         metric_separator, lowercase_metric_names, protocol, \
-        tags_map, metric_name, add_host_tag, formatter
-
+        tags_map, metric_name, add_host_tag, formatter, uri
+        
     for child in c.children:
         if child.key == 'AddHostTag':
             add_host_tag = child.values[0]
-        elif child.key == 'KairosDBHost':
-            host = child.values[0]
-        elif child.key == 'KairosDBPort':
-            port = int(child.values[0])
+        elif child.key == 'KairosDBURI':
+            uri = child.values[0]
         elif child.key == 'TypesDB':
             for v in child.values:
                 kairosdb_parse_types_file(v)
@@ -114,8 +111,6 @@ def kairosdb_config(c):
             host_separator = child.values[0]
         elif child.key == 'MetricSeparator':
             metric_separator = child.values[0]
-        elif child.key == 'KairosDBProtocol':
-            protocol = str(child.values[0]).lower()
         elif child.key == 'Formatter':
             formatter_path = child.values[0]
             try:
@@ -130,24 +125,33 @@ def kairosdb_config(c):
                     tags_map[tag_parts[0]] = tag_parts[1]
                 else:
                     collectd.error("Invalid tag: %s" % tag)
-
-    if not host:
-        raise Exception('KairosDBHost not defined')
-
-    if not port:
-        raise Exception('KairosDBPort not defined')
-
-    if not tags_map and not add_host_tag :
-        raise Exception('Tags not defined')
-
-    if protocol != 'http' and protocol != 'telnet':
-        raise Exception('Invalid protocol specified. Must be either "http" or "telnet"')
-
-    collectd.info('Initializing kairosdb_writer client in %s mode.' % protocol.upper())
-
+                   
 
 def kairosdb_init():
     import threading
+    global uri, tags_map, add_host_tag, protocol
+
+    #Param validation has to happen here, exceptions thrown in kairosdb_config 
+    #do not prevent the plugin from loading.
+    if not uri:
+        raise Exception('KairosDBURI not defined')
+
+    if not tags_map and not add_host_tag :
+        raise Exception('Tags not defined')
+        
+    split = uri.split(':')
+    #collectd.info(repr(split))
+    if len(split) != 3:
+        raise Exception('KairosDBURI must be in the format of <protocol>://<host>:<port>')
+    
+    protocol = split[0]
+    host = split[1].strip('/')
+    port = int(split[2])
+
+    if protocol != 'http' and protocol != 'https' and protocol != 'telnet':
+        raise Exception('Invalid protocol specified. Must be either "http", "https" or "telnet"')
+        
+    collectd.info('Initializing kairosdb_writer client in %s mode.' % protocol.upper())
 
     d = {
         'host': host,
@@ -165,8 +169,13 @@ def kairosdb_init():
 
 
 def kairosdb_connect(data):
+    #collectd.info(repr(data))
     if not data['conn'] and protocol == 'http':
-        data['conn'] = httplib.HTTPConnection(host, port)
+        data['conn'] = httplib.HTTPConnection(data['host'], data['port'])
+        return True
+        
+    elif not data['conn'] and protocol == 'https':
+        data['conn'] = httplib.HTTPSConnection(data['host'], data['port'])
         return True
 
     elif not data['conn'] and protocol == 'telnet':
@@ -179,7 +188,7 @@ def kairosdb_connect(data):
         collectd.info('connecting to %s:%s' % (data['host'], data['port']))
         try:
             data['conn'] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            data['conn'].connect((host, port))
+            data['conn'].connect((data['host'], data['port']))
             return True
         except:
             collectd.error('error connecting socket: %s' % format_exc())
@@ -257,7 +266,7 @@ def kairosdb_send_http_data(data, json):
 
 
 def kairosdb_write(v, data=None):
-
+    #collectd.info(repr(v))
     if v.type not in types:
         collectd.warning('kairosdb_writer: do not know how to handle type %s. do you have all your types.db files configured?' % v.type)
         return
