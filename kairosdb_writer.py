@@ -141,15 +141,26 @@ def kairosdb_init():
         
     split = uri.strip('/').split(':')
     #collectd.info(repr(split))
-    if len(split) != 3:
-        raise Exception('KairosDBURI must be in the format of <protocol>://<host>:<port>')
+    if len(split) != 3 and len(split) != 2:
+        raise Exception('KairosDBURI must be in the format of <protocol>://<host>[:<port>]')
     
+    #validate protocol and set default ports
     protocol = split[0]
-    host = split[1].strip('/')
-    port = int(split[2])
-
-    if protocol != 'http' and protocol != 'https' and protocol != 'telnet':
+    if protocol == 'http':
+        port = 80
+    elif protocol == 'https':
+        port = 443
+    elif protocol != 'telnet':
+        port = 4242
+    else:
         raise Exception('Invalid protocol specified. Must be either "http", "https" or "telnet"')
+    
+    host = split[1].strip('/')
+    
+    if (len(split) == 3):
+        port = int(split[2])
+
+    
         
     collectd.info('Initializing kairosdb_writer client in %s mode.' % protocol.upper())
 
