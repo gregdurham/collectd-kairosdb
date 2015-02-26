@@ -150,7 +150,7 @@ def kairosdb_init():
         port = 80
     elif protocol == 'https':
         port = 443
-    elif protocol != 'telnet':
+    elif protocol == 'telnet':
         port = 4242
     else:
         raise Exception('Invalid protocol specified. Must be either "http", "https" or "telnet"')
