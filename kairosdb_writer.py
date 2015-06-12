@@ -318,7 +318,7 @@ def kairosdb_write(v, data=None):
     
     #collectd.info('Metric: %s' % name)
 
-    if protocol == 'http':
+    if protocol == 'http' or protocol == 'https':
         kairosdb_write_http_metrics(data, v_type, v, name, tags)
     else:
         kairosdb_write_telnet_metrics(data, v_type, v, name, tags)
