@@ -41,49 +41,49 @@ def setup_config(config):
 
 CONFIG_DEFAULT = [Child('KairosDBURI', ['http://localhost:8888']),
                   Child('LowercaseMetricNames', ['true']),
-                  Child('TypesDB', ['/usr/share/collectd/types.db']),
+                  Child('TypesDB', ['./Types.db']),
                   Child('Tags', ["role=web01", "environment=lab"])
                   ]
 
 CONFIG_RATE = [Child('KairosDBURI', ['http://localhost:8888']),
                Child('LowercaseMetricNames', ['true']),
-               Child('TypesDB', ['/usr/share/collectd/types.db']),
+               Child('TypesDB', ['./Types.db']),
                Child('ConvertToRate', ["interface", "cpu"])
                ]
 
 CONFIG_RATE_NO_VALUES = [Child('KairosDBURI', ['http://localhost:8888']),
                          Child('LowercaseMetricNames', ['true']),
-                         Child('TypesDB', ['/usr/share/collectd/types.db']),
+                         Child('TypesDB', ['./Types.db']),
                          Child('ConvertToRate', [])
                          ]
 
 CONFIG_INVALID_TAG = [Child('KairosDBURI', ['http://localhost:8888']),
                       Child('LowercaseMetricNames', ['true']),
-                      Child('TypesDB', ['/usr/share/collectd/types.db']),
+                      Child('TypesDB', ['./Types.db']),
                       Child('Tags', ["role=web01", "environment"])
                       ]
 
 CONFIG_INVALID_FORMATTER = [Child('KairosDBURI', ['http://localhost:8888']),
                             Child('LowercaseMetricNames', ['true']),
-                            Child('TypesDB', ['/usr/share/collectd/types.db']),
+                            Child('TypesDB', ['./Types.db']),
                             Child('Formatter', ['/bogus/BogusFormatter.py'])
                             ]
 
 CONFIG_MISSING_URL = [Child('KairosDBURI', [""]),
                       Child('LowercaseMetricNames', ['true']),
-                      Child('TypesDB', ['/usr/share/collectd/types.db']),
+                      Child('TypesDB', ['./Types.db']),
                       Child('Tags', ["role=web01", "environment=lab"])
                       ]
 
 CONFIG_INVALID_URL = [Child('KairosDBURI', ['http//localhost']),
                       Child('LowercaseMetricNames', ['true']),
-                      Child('TypesDB', ['/usr/share/collectd/types.db']),
+                      Child('TypesDB', ['./Types.db']),
                       Child('Tags', ["role=web01", "environment=lab"])
                       ]
 
 CONFIG_INVALID_URL_PROTOCOL = [Child('KairosDBURI', ['file//localhost:8888']),
                                Child('LowercaseMetricNames', ['true']),
-                               Child('TypesDB', ['/usr/share/collectd/types.db']),
+                               Child('TypesDB', ['./Types.db']),
                                Child('Tags', ["role=web01", "environment=lab"])
                                ]
 

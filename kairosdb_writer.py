@@ -71,7 +71,7 @@ def kairosdb_parse_types_file(path):
 def str_to_num(s):
     """
     Convert type limits from strings to floats for arithmetic.
-    Will force Unlimited] values to be 0.
+    Will force unlimited values to be 0.
     """
 
     try:
@@ -130,7 +130,7 @@ def kairosdb_config(c):
         elif child.key == 'Tags':
             for tag in child.values:
                 tag_parts = tag.split("=")
-                if len(tag_parts) == 2:
+                if len(tag_parts) == 2 and len(tag_parts[0]) > 0 and len(tag_parts[1]) > 0:
                     tags_map[tag_parts[0]] = tag_parts[1]
                 else:
                     raise Exception("Invalid tag: %s" % tag)
@@ -290,8 +290,6 @@ def kairosdb_write(values, data=None):
 
         v_type = types[values.type]
 
-        collectd.info("type of values = %s " % type(values))
-
         if len(v_type) != len(values.values):
             collectd.warning('kairosdb_writer: differing number of values for type %s' % values.type)
             return
@@ -312,8 +310,7 @@ def kairosdb_write(values, data=None):
         if values.type_instance:
             type_instance = sanitize_field(values.type_instance)
 
-        collectd.info('plugin: %s plugin_instance: %s type: %s type_instance: %s' %
-                      (plugin, plugin_instance, type_name, type_instance))
+        # collectd.info('plugin: %s plugin_instance: %s type: %s type_instance: %s' % (plugin, plugin_instance, type_name, type_instance))
 
         name = metric_name % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type_name, 'type_instance': type_instance}
         if formatter:
@@ -391,7 +388,7 @@ def kairosdb_write_telnet_metrics(data, types_list, timestamp, values, name, tag
 
 
 def kairosdb_write_http_metrics(data, types_list, timestamp, values, name, tags):
-    timestamp *= 1000
+    time = timestamp * 1000
     json = '['
     i = 0
     for value in values:
@@ -406,7 +403,7 @@ def kairosdb_write_http_metrics(data, types_list, timestamp, values, name, tags)
 
             json += '{'
             json += '"name":"%s",' % new_name
-            json += '"datapoints":[[%d, %f]],' % (timestamp, new_value)
+            json += '"datapoints":[[%d, %f]],' % (time, new_value)
             json += '"tags": {'
 
             first = True
