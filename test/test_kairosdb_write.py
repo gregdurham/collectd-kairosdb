@@ -48,7 +48,7 @@ CONFIG_DEFAULT = [Child('KairosDBURI', ['http://localhost:8888']),
 CONFIG_RATE = [Child('KairosDBURI', ['http://localhost:8888']),
                Child('LowercaseMetricNames', ['true']),
                Child('TypesDB', ['./Types.db']),
-               Child('ConvertToRate', ["interface", "cpu"])
+               Child('ConvertToRate', ["interface", "cpu", "mysql_handler"])
                ]
 
 CONFIG_RATE_NO_VALUES = [Child('KairosDBURI', ['http://localhost:8888']),
@@ -255,3 +255,50 @@ class TestKairosdbWrite(TestCase):
         self.assertEquals(result[0]['datapoints'][0][1], 13)
         self.assertEquals(result[1]['datapoints'][0][1], 15)
         self.assertEquals(result[2]['datapoints'][0][1], 20)
+
+    def test_rate_multiple_values(self):
+        """
+        Verify that rates are calculated and that multiple metrics are sent
+        """
+        setup_config(CONFIG_RATE)
+        values = Values('if_packets', 'eth0', 'interface', '', 'localhost',
+                        1442868136, 10.0, [10, 11])
+
+        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        result = json.loads(self.server.get_data())
+
+        self.assertEquals(result,
+            [])  # First value so can't calculate rate so no data is sent to Kairos
+
+        values = Values('if_packets', 'eth0', 'interface', '', 'localhost',
+                        1442868137, 10.0, [11, 13])
+        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        result = json.loads(self.server.get_data())
+
+        self.assertEquals(result[0]['name'],
+                          "collectd.interface.if_packets.eth0.rx_rate")
+        self.assertEquals(result[0]['datapoints'][0][1], 1.0)
+        self.assertEquals(result[1]['name'],
+                          "collectd.interface.if_packets.eth0.tx_rate")
+        self.assertEquals(result[1]['datapoints'][0][1], 2.0)
+
+    def test_rate_zero_time_difference(self):
+        """
+        Verify that rates that have zero time difference don't get reported (prevents divide by zero error)
+        """
+        setup_config(CONFIG_RATE)
+        values = Values('mysql_handler', '', 'mysql_handler', '', 'localhost',
+                        1442868136, 10.0, [10])
+
+        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        result = json.loads(self.server.get_data())
+
+        self.assertEquals(result,
+            [])  # First value so can't calculate rate so no data is sent to Kairos
+
+        values = Values('mysql_handler', '', 'mysql_handler', '', 'localhost',
+                        1442868136, 10.0, [11])
+        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        result = json.loads(self.server.get_data())
+
+        self.assertEquals(result, [])

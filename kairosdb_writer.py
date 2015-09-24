@@ -312,9 +312,14 @@ def kairosdb_write(values, data=None):
 
         # collectd.info('plugin: %s plugin_instance: %s type: %s type_instance: %s' % (plugin, plugin_instance, type_name, type_instance))
 
-        name = metric_name % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type_name, 'type_instance': type_instance}
+        default_name = metric_name % {'host': hostname, 'plugin': plugin,
+                                      'plugin_instance': plugin_instance,
+                                      'type': type_name,
+                                      'type_instance': type_instance}
         if formatter:
             name, tags = formatter.format(metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
+        else:
+            name = default_name
 
         # Remove dots for missing pieces
         name = name.replace('..', '.')
@@ -327,19 +332,26 @@ def kairosdb_write(values, data=None):
 
         if convert_to_rate(plugin):
             i = 0
+            type_list = []
+            values_list = []
             for value in values.values:
                 if is_counter(v_type[i]):
-                    type_list = []
-                    values_list = []
-                    counter = "%s.%s" % (name, v_type[i][0])
+                    counter = "%s.%s" % (default_name, v_type[i][0])
 
                     with data['lock']:
                         if value is not None:
                             if counter in counters_map:
                                 old_value = counters_map[counter]
-                                rate = (value - old_value['value']) / (values.time - old_value['timestamp'])
-                                values_list.append(rate)
-                                type_list.append([v_type[i][0] + '_rate', 'GAUGE', '0', 'U'])
+                                try:
+                                    rate = (value - old_value['value']) / (
+                                    values.time - old_value['timestamp'])
+                                    values_list.append(rate)
+                                    type_list.append(
+                                        [v_type[i][0] + '_rate', 'GAUGE', '0',
+                                         'U'])
+                                except ZeroDivisionError:
+                                    collectd.error(
+                                        "Timestamp values are identical (caused divide by error) for %s" + default_name)
                             counters_map[counter] = {'value': value, 'timestamp': values.time}
                 i += 1
 
@@ -388,7 +400,7 @@ def kairosdb_write_telnet_metrics(data, types_list, timestamp, values, name, tag
 
 
 def kairosdb_write_http_metrics(data, types_list, timestamp, values, name, tags):
-    time = timestamp * 1000
+    time_in_seconds = timestamp * 1000
     json = '['
     i = 0
     for value in values:
@@ -403,7 +415,7 @@ def kairosdb_write_http_metrics(data, types_list, timestamp, values, name, tags)
 
             json += '{'
             json += '"name":"%s",' % new_name
-            json += '"datapoints":[[%d, %f]],' % (time, new_value)
+            json += '"datapoints":[[%d, %f]],' % (time_in_seconds, new_value)
             json += '"tags": {'
 
             first = True
