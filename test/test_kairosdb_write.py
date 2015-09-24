@@ -48,7 +48,8 @@ CONFIG_DEFAULT = [Child('KairosDBURI', ['http://localhost:8888']),
 CONFIG_RATE = [Child('KairosDBURI', ['http://localhost:8888']),
                Child('LowercaseMetricNames', ['true']),
                Child('TypesDB', ['./Types.db']),
-               Child('ConvertToRate', ["interface", "cpu", "mysql_handler"])
+               Child('ConvertToRate',
+                     ["interface", "cpu", "mysql_handler", "mysql_qcache"])
                ]
 
 CONFIG_RATE_NO_VALUES = [Child('KairosDBURI', ['http://localhost:8888']),
@@ -195,31 +196,6 @@ class TestKairosdbWrite(TestCase):
 
         self.assertIsNone(self.server.get_data())
 
-    def test_rate_regex(self):
-        """
-        Verify that the regex used by ConvertToRate searches the whole plugin name
-        """
-        setup_config(CONFIG_RATE)
-        values = Values('cpu', 'softirq', 'MycpuMetric', '0', 'localhost', 1442868136, 10.0, [10])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
-
-        values = Values('cpu', 'softirq', 'MycpuMetric', '0', 'localhost', 1442868137, 10.0, [11])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
-        result = json.loads(self.server.get_data())
-
-        self.assertEquals(result[0]['name'], "collectd.MycpuMetric.0.cpu.softirq.value_rate")
-        self.assertEquals(result[0]['datapoints'][0][1], 1.0)
-
-        values = Values('cpu', 'softirq', 'Myinterface', '0', 'localhost', 1442868136, 10.0, [10])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
-
-        values = Values('cpu', 'softirq', 'Myinterface', '0', 'localhost', 1442868137, 10.0, [11])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
-        result = json.loads(self.server.get_data())
-
-        self.assertEquals(result[0]['name'], "collectd.Myinterface.0.cpu.softirq.value_rate")
-        self.assertEquals(result[0]['datapoints'][0][1], 1.0)
-
     def test_rate(self):
         """
         Verify that rates are calculated and that the metric name has "_rate" appended to it
@@ -236,21 +212,27 @@ class TestKairosdbWrite(TestCase):
         kairosdb_writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
-        self.assertEquals(result[0]['name'], "collectd.cpu.0.cpu.softirq.value_rate")
-        self.assertEquals(result[0]['datapoints'][0][1], 1.0)
+        self.assertEquals(len(result),
+                          1)  # Verify that the original metric is not sent
+        self.assertMetric(result[0], "collectd.cpu.0.cpu.softirq.value_rate",
+                          1.0)
 
         values = Values('cpu', 'softirq', 'cpu', '0', 'localhost', 1442868138, 10.0, [13])
         kairosdb_writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
-        self.assertEquals(result[0]['name'], "collectd.cpu.0.cpu.softirq.value_rate")
-        self.assertEquals(result[0]['datapoints'][0][1], 2.0)
+        self.assertEquals(len(result),
+                          1)  # Verify that the original metric is not sent
+        self.assertMetric(result[0], "collectd.cpu.0.cpu.softirq.value_rate",
+                          2.0)
 
         #  Not in the rate regex
         values = Values('load', '', 'load_type', '', 'localhost', 1442868138, 10.0, [13, 15, 20])
         kairosdb_writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
+        self.assertEquals(len(result),
+                          3)  # Verify that the original metric is sent (not a rate)
         self.assertEquals(result[0]['name'], "collectd.load_type.load.shortterm")
         self.assertEquals(result[0]['datapoints'][0][1], 13)
         self.assertEquals(result[1]['datapoints'][0][1], 15)
@@ -275,12 +257,45 @@ class TestKairosdbWrite(TestCase):
         kairosdb_writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
-        self.assertEquals(result[0]['name'],
-                          "collectd.interface.if_packets.eth0.rx_rate")
-        self.assertEquals(result[0]['datapoints'][0][1], 1.0)
-        self.assertEquals(result[1]['name'],
-                          "collectd.interface.if_packets.eth0.tx_rate")
-        self.assertEquals(result[1]['datapoints'][0][1], 2.0)
+        self.assertMetric(result[0],
+                          "collectd.interface.if_packets.eth0.rx_rate", 1.0)
+
+    def test_rate_mixed_types(self):
+        """
+        Verify that non-counter metrics are sent and not filtered
+        """
+        setup_config(CONFIG_RATE)
+        values = Values('mysql_qcache', '', 'mysql_qcache', '', 'localhost',
+                        1442868136, 10.0, [10, 11, 12, 13, 14])
+
+        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        result = json.loads(self.server.get_data())
+
+        self.assertEquals(len(result), 1)  # There is one non-counter value
+        self.assertMetric(result[0],
+                          "collectd.mysql_qcache.mysql_qcache.queries_in_cache",
+                          14)
+
+        values = Values('mysql_qcache', '', 'mysql_qcache', '', 'localhost',
+                        1442868137, 10.0, [11, 13, 14, 15, 16])
+        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        result = json.loads(self.server.get_data())
+
+        self.assertEquals(len(result), 5)
+        self.assertMetric(result[0],
+                          "collectd.mysql_qcache.mysql_qcache.hits_rate", 1.0)
+        self.assertMetric(result[1],
+                          "collectd.mysql_qcache.mysql_qcache.inserts_rate",
+                          2.0)
+        self.assertMetric(result[2],
+                          "collectd.mysql_qcache.mysql_qcache.not_cached_rate",
+                          2.0)
+        self.assertMetric(result[3],
+                          "collectd.mysql_qcache.mysql_qcache.lowmem_prunes_rate",
+                          2.0)
+        self.assertMetric(result[4],
+                          "collectd.mysql_qcache.mysql_qcache.queries_in_cache",
+                          16)  # Not a rate
 
     def test_rate_zero_time_difference(self):
         """
@@ -302,3 +317,7 @@ class TestKairosdbWrite(TestCase):
         result = json.loads(self.server.get_data())
 
         self.assertEquals(result, [])
+
+    def assertMetric(self, expected, actualName, actualValue):
+        self.assertEquals(expected['name'], actualName)
+        self.assertEquals(expected['datapoints'][0][1], actualValue)

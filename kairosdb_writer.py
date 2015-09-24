@@ -18,7 +18,6 @@ import traceback
 import socket
 import httplib
 import imp
-import re
 from string import maketrans
 from time import time
 from traceback import format_exc
@@ -330,7 +329,7 @@ def kairosdb_write(values, data=None):
         type_list = list(v_type)
         values_list = list(values.values)
 
-        if convert_to_rate(plugin):
+        if plugin in convert_rates:
             i = 0
             type_list = []
             values_list = []
@@ -353,6 +352,9 @@ def kairosdb_write(values, data=None):
                                     collectd.error(
                                         "Timestamp values are identical (caused divide by error) for %s" + default_name)
                             counters_map[counter] = {'value': value, 'timestamp': values.time}
+                else:
+                    values_list.append(value)
+                    type_list.append(v_type[i])
                 i += 1
 
         if protocol == 'http' or protocol == 'https':
@@ -361,13 +363,6 @@ def kairosdb_write(values, data=None):
             kairosdb_write_telnet_metrics(data, type_list, values.time, values_list, name, tags)
     except Exception:
         collectd.error(traceback.format_exc())
-
-
-def convert_to_rate(plugin):
-    for regex in convert_rates:
-        if re.search(regex, plugin):
-            return True
-    return False
 
 
 def is_counter(value_type):
