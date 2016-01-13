@@ -45,6 +45,13 @@ CONFIG_DEFAULT = [Child('KairosDBURI', ['http://localhost:8888']),
                   Child('Tags', ["role=web01", "environment=lab"])
                   ]
 
+CONFIG_WITH_FORMATTER = [Child('KairosDBURI', ['http://localhost:8888']),
+                  Child('LowercaseMetricNames', ['true']),
+                  Child('TypesDB', ['./Types.db']),
+                  Child('Tags', ["role=web01", "environment=lab"]),
+                  Child('Formatter', ['defaultTestFormatter.py'])
+                  ]
+
 CONFIG_RATE = [Child('KairosDBURI', ['http://localhost:8888']),
                Child('LowercaseMetricNames', ['true']),
                Child('TypesDB', ['./Types.db']),
@@ -90,11 +97,10 @@ CONFIG_INVALID_URL_PROTOCOL = [Child('KairosDBURI', ['file//localhost:8888']),
 
 
 class TestKairosdbWrite(TestCase):
-    """
-    Tests for ConvertToRate
-    """
-
     server = None
+
+    def setUp(self):
+        kairosdb_writer.reset_config()
 
     @classmethod
     def setUpClass(cls):
@@ -317,6 +323,58 @@ class TestKairosdbWrite(TestCase):
         result = json.loads(self.server.get_data())
 
         self.assertEquals(result, [])
+
+    def test_load_plugin_formatters(self):
+        """
+        Verify that the method returns all plugin formatters
+        """
+        formattersDict = kairosdb_writer.load_plugin_formatters("formatters")
+
+        self.assertEquals(len(formattersDict), 12)
+        self.assertEquals(formattersDict["a"].plugins(), ['a', 'b', 'c', 'd'])
+        self.assertEquals(formattersDict["f"].plugins(), ['e', 'f', 'g', 'h'])
+        self.assertEquals(formattersDict["k"].plugins(), ['i', 'j', 'k', 'l'])
+
+        self.assertEquals(formattersDict["a"].format('','','','','','',''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
+        self.assertEquals(formattersDict["b"].format('','','','','','',''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
+        self.assertEquals(formattersDict["c"].format('','','','','','',''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
+        self.assertEquals(formattersDict["d"].format('','','','','','',''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
+        self.assertEquals(formattersDict["e"].format('','','','','','',''), ('metric2Formatter', {'tag3': 'a', 'tag4': 'b'}))
+        self.assertEquals(formattersDict["h"].format('','','','','','',''), ('metric2Formatter', {'tag3': 'a', 'tag4': 'b'}))
+        self.assertEquals(formattersDict["k"].format('','','','','','',''), ('metric3Formatter', {'tag5': 'a', 'tag6': 'b'}))
+
+    def test_default_formatter(self):
+        """
+        Verify that default formatter is called for all plugins that have no plugin formatters
+        """
+        setup_config(CONFIG_WITH_FORMATTER)
+        values = Values('cpu', 'softirq', 'MycpuMetric', '0', 'localhost', 1442868137, 10.0, [11])
+
+        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        result = json.loads(self.server.get_data())
+
+        self.assertEquals(result[0]['name'], "defaultFormatterMetric.value")
+        self.assertEquals(result[0]['datapoints'][0][0], 1442868137000)
+        self.assertEquals(result[0]['datapoints'][0][1], 11)
+        self.assertEquals(result[0]['tags']["df1"], "a")
+        self.assertEquals(result[0]['tags']["df2"], "b")
+
+    def test_plugin_formatter(self):
+        """
+        Verify that plugin formatter is called
+        """
+        setup_config(CONFIG_WITH_FORMATTER)
+        values = Values('cpu', 'softirq', 'a', '0', 'localhost', 1442868137, 10.0, [11])
+
+        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        result = json.loads(self.server.get_data())
+
+        self.assertEquals(result[0]['name'], "metric1Formatter.value")
+        self.assertEquals(result[0]['datapoints'][0][0], 1442868137000)
+        self.assertEquals(result[0]['datapoints'][0][1], 11)
+        self.assertEquals(result[0]['tags']["tag1"], "a")
+        self.assertEquals(result[0]['tags']["tag2"], "b")
+
 
     def assertMetric(self, expected, actualName, actualValue):
         self.assertEquals(expected['name'], actualName)

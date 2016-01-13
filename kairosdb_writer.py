@@ -12,16 +12,20 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+#  Version 1.1
+
 # noinspection PyUnresolvedReferences
 import collectd
 import traceback
 import socket
 import httplib
 import imp
+import os
 from string import maketrans
 from time import time
 from traceback import format_exc
 
+FORMATTER_DIRECTORY = "formatters"
 
 add_host_tag = True
 convert_rates = []
@@ -33,8 +37,23 @@ host_separator = "."
 metric_separator = "."
 protocol = "telnet"
 formatter = None
+pluginsToFormatter = None
 counters_map = {}  # store the last value and timestamp for each value of type from DERIVE and COUNTER
 
+def reset_config():
+    global host_separator, \
+        metric_separator, lowercase_metric_names, protocol, \
+        tags_map, metric_name, add_host_tag, formatter, pluginsToFormatter, uri, convert_rates
+    metric_separator = "."
+    lowercase_metric_names = False
+    protocol = "telnet"
+    tags_map = {}
+    metric_name = 'collectd.%(plugin)s.%(plugin_instance)s.%(type)s.%(type_instance)s'
+    add_host_tag = True
+    formatter = None
+    pluginsToFormatter = None
+    uri = None
+    convert_rates = []
 
 def kairosdb_parse_types_file(path):
     global types
@@ -98,7 +117,7 @@ def sanitize_field(field):
 def kairosdb_config(c):
     global host_separator, \
         metric_separator, lowercase_metric_names, protocol, \
-        tags_map, metric_name, add_host_tag, formatter, uri, convert_rates
+        tags_map, metric_name, add_host_tag, formatter, pluginsToFormatter, uri, convert_rates
 
     for child in c.children:
         if child.key == 'AddHostTag':
@@ -121,6 +140,8 @@ def kairosdb_config(c):
                 raise Exception("Missing ConvertToRate values")
             convert_rates = child.values
         elif child.key == 'Formatter':
+            pluginsToFormatter = load_plugin_formatters(FORMATTER_DIRECTORY)
+
             formatter_path = child.values[0]
             try:
                 formatter = imp.load_source('formatter', formatter_path)
@@ -315,7 +336,10 @@ def kairosdb_write(values, data=None):
                                       'plugin_instance': plugin_instance,
                                       'type': type_name,
                                       'type_instance': type_instance}
-        if formatter:
+
+        if pluginsToFormatter and plugin in pluginsToFormatter:
+            name, tags = pluginsToFormatter[plugin].format(metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
+        elif formatter:
             name, tags = formatter.format(metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
         else:
             name = default_name
@@ -343,7 +367,7 @@ def kairosdb_write(values, data=None):
                                 old_value = counters_map[counter]
                                 try:
                                     rate = (value - old_value['value']) / (
-                                    values.time - old_value['timestamp'])
+                                        values.time - old_value['timestamp'])
                                     values_list.append(rate)
                                     type_list.append(
                                         [v_type[i][0] + '_rate', 'GAUGE', '0',
@@ -431,6 +455,21 @@ def kairosdb_write_http_metrics(data, types_list, timestamp, values, name, tags)
 
     collectd.debug(json)
     kairosdb_send_http_data(data, json)
+
+
+def load_plugin_formatters(formatter_directory):
+    if os.path.exists(formatter_directory):
+        plugins_to_format = {}
+        for filename in os.listdir(formatter_directory):
+            if filename.endswith(".py"):
+                formatter_name, extension = os.path.splitext(filename)
+                plugin_formatter = imp.load_source(formatter_name, formatter_directory + "/" + filename)
+                for plugin in plugin_formatter.plugins():
+                    plugins_to_format[plugin] = plugin_formatter
+
+        return plugins_to_format
+    else:
+        return {}
 
 collectd.register_config(kairosdb_config)
 collectd.register_init(kairosdb_init)
