@@ -1,5 +1,5 @@
 from unittest import TestCase
-import kairosdb_writer
+from kairosdb_writer import KairosdbWriter
 import datetime
 import HttpServer
 import collectd
@@ -33,10 +33,10 @@ class Values:
         self.values = values
 
 
-def setup_config(config):
+def setup_config(writer, config):
     c = Config(config)
-    kairosdb_writer.kairosdb_config(c)
-    kairosdb_writer.kairosdb_init()
+    writer.kairosdb_config(c)
+    writer.kairosdb_init()
 
 
 CONFIG_DEFAULT = [Child('KairosDBURI', ['http://localhost:8888']),
@@ -46,11 +46,12 @@ CONFIG_DEFAULT = [Child('KairosDBURI', ['http://localhost:8888']),
                   ]
 
 CONFIG_WITH_FORMATTER = [Child('KairosDBURI', ['http://localhost:8888']),
-                  Child('LowercaseMetricNames', ['true']),
-                  Child('TypesDB', ['./Types.db']),
-                  Child('Tags', ["role=web01", "environment=lab"]),
-                  Child('Formatter', ['defaultTestFormatter.py'])
-                  ]
+                         Child('LowercaseMetricNames', ['true']),
+                         Child('TypesDB', ['./Types.db']),
+                         Child('Tags', ["role=web01", "environment=lab"]),
+                         Child('Formatter', ['defaultTestFormatter.py']),
+                         Child('PluginFormatterPath', ['formatters'])
+                         ]
 
 CONFIG_RATE = [Child('KairosDBURI', ['http://localhost:8888']),
                Child('LowercaseMetricNames', ['true']),
@@ -98,9 +99,10 @@ CONFIG_INVALID_URL_PROTOCOL = [Child('KairosDBURI', ['file//localhost:8888']),
 
 class TestKairosdbWrite(TestCase):
     server = None
+    writer = None
 
     def setUp(self):
-        kairosdb_writer.reset_config()
+        self.writer = KairosdbWriter()
 
     @classmethod
     def setUpClass(cls):
@@ -116,7 +118,7 @@ class TestKairosdbWrite(TestCase):
         """
         # noinspection PyBroadException
         try:
-            setup_config(CONFIG_RATE_NO_VALUES)
+            setup_config(self.writer, CONFIG_RATE_NO_VALUES)
             self.assertTrue(False)
         except Exception as e:
             self.assertEquals(e.message, "Missing ConvertToRate values")
@@ -127,7 +129,7 @@ class TestKairosdbWrite(TestCase):
         """
         # noinspection PyBroadException
         try:
-            setup_config(CONFIG_INVALID_TAG)
+            setup_config(self.writer, CONFIG_INVALID_TAG)
             self.assertTrue(False)
         except Exception as e:
             self.assertEquals(e.message, "Invalid tag: environment")
@@ -138,7 +140,7 @@ class TestKairosdbWrite(TestCase):
         """
         # noinspection PyBroadException
         try:
-            setup_config(CONFIG_INVALID_FORMATTER)
+            setup_config(self.writer, CONFIG_INVALID_FORMATTER)
             self.assertTrue(False)
         except Exception as e:
             self.assertTrue(e.message.startswith("Could not load formatter /bogus/BogusFormatter.py"))
@@ -149,7 +151,7 @@ class TestKairosdbWrite(TestCase):
         """
         # noinspection PyBroadException
         try:
-            setup_config(CONFIG_MISSING_URL)
+            setup_config(self.writer, CONFIG_MISSING_URL)
             self.assertTrue(False)
         except Exception as e:
             self.assertEquals(e.message, "KairosDBURI not defined")
@@ -160,7 +162,7 @@ class TestKairosdbWrite(TestCase):
         """
         # noinspection PyBroadException
         try:
-            setup_config(CONFIG_INVALID_URL)
+            setup_config(self.writer, CONFIG_INVALID_URL)
             self.assertTrue(False)
         except Exception as e:
             self.assertEquals(e.message, "KairosDBURI must be in the format of <protocol>://<host>[:<port>]")
@@ -171,7 +173,7 @@ class TestKairosdbWrite(TestCase):
         """
         # noinspection PyBroadException
         try:
-            setup_config(CONFIG_INVALID_URL_PROTOCOL)
+            setup_config(self.writer, CONFIG_INVALID_URL_PROTOCOL)
             self.assertTrue(False)
         except Exception as e:
             self.assertEquals(e.message, 'Invalid protocol specified. Must be either "http", "https" or "telnet"')
@@ -180,9 +182,9 @@ class TestKairosdbWrite(TestCase):
         """
         Verify that the correct values are sent for a metric
         """
-        setup_config(CONFIG_DEFAULT)
+        setup_config(self.writer, CONFIG_DEFAULT)
         values = Values('cpu', 'softirq', 'MycpuMetric', '0', 'localhost', 1442868137, 10.0, [11])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(result[0]['name'], "collectd.MycpuMetric.0.cpu.softirq.value")
@@ -196,9 +198,9 @@ class TestKairosdbWrite(TestCase):
         """
         Verify that the type for the metric name does not exist in Types.db
         """
-        setup_config(CONFIG_DEFAULT)
+        setup_config(self.writer, CONFIG_DEFAULT)
         values = Values('foo', 'softirq', 'MycpuMetric', '0', 'localhost', 1442868137, 10.0, [11])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
 
         self.assertIsNone(self.server.get_data())
 
@@ -206,16 +208,16 @@ class TestKairosdbWrite(TestCase):
         """
         Verify that rates are calculated and that the metric name has "_rate" appended to it
         """
-        setup_config(CONFIG_RATE)
+        setup_config(self.writer, CONFIG_RATE)
         values = Values('cpu', 'softirq', 'cpu', '0', 'localhost', 1442868136, 10.0, [10])
 
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(result, [])  # First value so can't calculate rate so no data is sent to Kairos
 
         values = Values('cpu', 'softirq', 'cpu', '0', 'localhost', 1442868137, 10.0, [11])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(len(result),
@@ -224,7 +226,7 @@ class TestKairosdbWrite(TestCase):
                           1.0)
 
         values = Values('cpu', 'softirq', 'cpu', '0', 'localhost', 1442868138, 10.0, [13])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(len(result),
@@ -234,7 +236,7 @@ class TestKairosdbWrite(TestCase):
 
         #  Not in the rate regex
         values = Values('load', '', 'load_type', '', 'localhost', 1442868138, 10.0, [13, 15, 20])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(len(result),
@@ -248,19 +250,18 @@ class TestKairosdbWrite(TestCase):
         """
         Verify that rates are calculated and that multiple metrics are sent
         """
-        setup_config(CONFIG_RATE)
+        setup_config(self.writer, CONFIG_RATE)
         values = Values('if_packets', 'eth0', 'interface', '', 'localhost',
                         1442868136, 10.0, [10, 11])
 
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
-        self.assertEquals(result,
-            [])  # First value so can't calculate rate so no data is sent to Kairos
+        self.assertEquals(result, [])  # First value so can't calculate rate so no data is sent to Kairos
 
         values = Values('if_packets', 'eth0', 'interface', '', 'localhost',
                         1442868137, 10.0, [11, 13])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertMetric(result[0],
@@ -270,11 +271,11 @@ class TestKairosdbWrite(TestCase):
         """
         Verify that non-counter metrics are sent and not filtered
         """
-        setup_config(CONFIG_RATE)
+        setup_config(self.writer, CONFIG_RATE)
         values = Values('mysql_qcache', '', 'mysql_qcache', '', 'localhost',
                         1442868136, 10.0, [10, 11, 12, 13, 14])
 
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(len(result), 1)  # There is one non-counter value
@@ -284,7 +285,7 @@ class TestKairosdbWrite(TestCase):
 
         values = Values('mysql_qcache', '', 'mysql_qcache', '', 'localhost',
                         1442868137, 10.0, [11, 13, 14, 15, 16])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(len(result), 5)
@@ -307,19 +308,18 @@ class TestKairosdbWrite(TestCase):
         """
         Verify that rates that have zero time difference don't get reported (prevents divide by zero error)
         """
-        setup_config(CONFIG_RATE)
+        setup_config(self.writer, CONFIG_RATE)
         values = Values('mysql_handler', '', 'mysql_handler', '', 'localhost',
                         1442868136, 10.0, [10])
 
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
-        self.assertEquals(result,
-            [])  # First value so can't calculate rate so no data is sent to Kairos
+        self.assertEquals(result, [])  # First value so can't calculate rate so no data is sent to Kairos
 
         values = Values('mysql_handler', '', 'mysql_handler', '', 'localhost',
                         1442868136, 10.0, [11])
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(result, [])
@@ -328,29 +328,29 @@ class TestKairosdbWrite(TestCase):
         """
         Verify that the method returns all plugin formatters
         """
-        formattersDict = kairosdb_writer.load_plugin_formatters("formatters")
+        formatters_dict = self.writer.load_plugin_formatters("formatters")
 
-        self.assertEquals(len(formattersDict), 12)
-        self.assertEquals(formattersDict["a"].plugins(), ['a', 'b', 'c', 'd'])
-        self.assertEquals(formattersDict["f"].plugins(), ['e', 'f', 'g', 'h'])
-        self.assertEquals(formattersDict["k"].plugins(), ['i', 'j', 'k', 'l'])
+        self.assertEquals(len(formatters_dict), 12)
+        self.assertEquals(formatters_dict["a"].plugins(), ['a', 'b', 'c', 'd'])
+        self.assertEquals(formatters_dict["f"].plugins(), ['e', 'f', 'g', 'h'])
+        self.assertEquals(formatters_dict["k"].plugins(), ['i', 'j', 'k', 'l'])
 
-        self.assertEquals(formattersDict["a"].format('','','','','','',''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
-        self.assertEquals(formattersDict["b"].format('','','','','','',''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
-        self.assertEquals(formattersDict["c"].format('','','','','','',''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
-        self.assertEquals(formattersDict["d"].format('','','','','','',''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
-        self.assertEquals(formattersDict["e"].format('','','','','','',''), ('metric2Formatter', {'tag3': 'a', 'tag4': 'b'}))
-        self.assertEquals(formattersDict["h"].format('','','','','','',''), ('metric2Formatter', {'tag3': 'a', 'tag4': 'b'}))
-        self.assertEquals(formattersDict["k"].format('','','','','','',''), ('metric3Formatter', {'tag5': 'a', 'tag6': 'b'}))
+        self.assertEquals(formatters_dict["a"].format_metric('', '', '', '', '', '', ''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
+        self.assertEquals(formatters_dict["b"].format_metric('', '', '', '', '', '', ''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
+        self.assertEquals(formatters_dict["c"].format_metric('', '', '', '', '', '', ''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
+        self.assertEquals(formatters_dict["d"].format_metric('', '', '', '', '', '', ''), ('metric1Formatter', {'tag1': 'a', 'tag2': 'b'}))
+        self.assertEquals(formatters_dict["e"].format_metric('', '', '', '', '', '', ''), ('metric2Formatter', {'tag3': 'a', 'tag4': 'b'}))
+        self.assertEquals(formatters_dict["h"].format_metric('', '', '', '', '', '', ''), ('metric2Formatter', {'tag3': 'a', 'tag4': 'b'}))
+        self.assertEquals(formatters_dict["k"].format_metric('', '', '', '', '', '', ''), ('metric3Formatter', {'tag5': 'a', 'tag6': 'b'}))
 
     def test_default_formatter(self):
         """
         Verify that default formatter is called for all plugins that have no plugin formatters
         """
-        setup_config(CONFIG_WITH_FORMATTER)
+        setup_config(self.writer, CONFIG_WITH_FORMATTER)
         values = Values('cpu', 'softirq', 'MycpuMetric', '0', 'localhost', 1442868137, 10.0, [11])
 
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(result[0]['name'], "defaultFormatterMetric.value")
@@ -363,10 +363,10 @@ class TestKairosdbWrite(TestCase):
         """
         Verify that plugin formatter is called
         """
-        setup_config(CONFIG_WITH_FORMATTER)
+        setup_config(self.writer, CONFIG_WITH_FORMATTER)
         values = Values('cpu', 'softirq', 'a', '0', 'localhost', 1442868137, 10.0, [11])
 
-        kairosdb_writer.kairosdb_write(values, collectd.get_data())
+        self.writer.kairosdb_write(values, collectd.get_data())
         result = json.loads(self.server.get_data())
 
         self.assertEquals(result[0]['name'], "metric1Formatter.value")
@@ -375,7 +375,6 @@ class TestKairosdbWrite(TestCase):
         self.assertEquals(result[0]['tags']["tag1"], "a")
         self.assertEquals(result[0]['tags']["tag2"], "b")
 
-
-    def assertMetric(self, expected, actualName, actualValue):
-        self.assertEquals(expected['name'], actualName)
-        self.assertEquals(expected['datapoints'][0][1], actualValue)
+    def assertMetric(self, expected, actual_name, actual_value):
+        self.assertEquals(expected['name'], actual_name)
+        self.assertEquals(expected['datapoints'][0][1], actual_value)

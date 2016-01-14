@@ -24,452 +24,426 @@ import os
 from string import maketrans
 from time import time
 from traceback import format_exc
+import threading
 
-FORMATTER_DIRECTORY = "formatters"
 
-add_host_tag = True
-convert_rates = []
-uri = None
-types = {}
-metric_name = 'collectd.%(plugin)s.%(plugin_instance)s.%(type)s.%(type_instance)s'
-tags_map = {}
-host_separator = "."
-metric_separator = "."
-protocol = "telnet"
-formatter = None
-pluginsToFormatter = None
-counters_map = {}  # store the last value and timestamp for each value of type from DERIVE and COUNTER
+class KairosdbWriter:
 
-def reset_config():
-    global host_separator, \
-        metric_separator, lowercase_metric_names, protocol, \
-        tags_map, metric_name, add_host_tag, formatter, pluginsToFormatter, uri, convert_rates
-    metric_separator = "."
-    lowercase_metric_names = False
-    protocol = "telnet"
-    tags_map = {}
-    metric_name = 'collectd.%(plugin)s.%(plugin_instance)s.%(type)s.%(type_instance)s'
-    add_host_tag = True
-    formatter = None
-    pluginsToFormatter = None
-    uri = None
-    convert_rates = []
+    def __init__(self):
+        self.add_host_tag = True
+        self.convert_rates = []
+        self.uri = None
+        self.types = {}
+        self.metric_name = 'collectd.%(plugin)s.%(plugin_instance)s.%(type)s.%(type_instance)s'
+        self.tags_map = {}
+        self.host_separator = "."
+        self.metric_separator = "."
+        self.formatter = None
+        self.pluginsToFormatter = None
+        self.counters_map = {}  # store the last value and timestamp for each value of type from DERIVE and COUNTER
+        self.lowercase_metric_names = False
+        self.protocol = None
 
-def kairosdb_parse_types_file(path):
-    global types
+    def kairosdb_parse_types_file(self, path):
+        f = open(path, 'r')
 
-    f = open(path, 'r')
-
-    for line in f:
-        fields = line.split()
-        if len(fields) < 2:
-            continue
-
-        type_name = fields[0]
-
-        if type_name[0] == '#':
-            continue
-
-        v = []
-        for ds in fields[1:]:
-            ds = ds.rstrip(',')
-            ds_fields = ds.split(':')
-
-            if len(ds_fields) != 4:
-                collectd.warning('kairosdb_writer: cannot parse data source %s on type %s' % (ds, type_name))
+        for line in f:
+            fields = line.split()
+            if len(fields) < 2:
                 continue
 
-            v.append(ds_fields)
+            type_name = fields[0]
 
-        types[type_name] = v
+            if type_name[0] == '#':
+                continue
 
-    f.close()
+            v = []
+            for ds in fields[1:]:
+                ds = ds.rstrip(',')
+                ds_fields = ds.split(':')
 
+                if len(ds_fields) != 4:
+                    collectd.warning('kairosdb_writer: cannot parse data source %s on type %s' % (ds, type_name))
+                    continue
 
-def str_to_num(s):
-    """
-    Convert type limits from strings to floats for arithmetic.
-    Will force unlimited values to be 0.
-    """
+                v.append(ds_fields)
 
-    try:
-        n = float(s)
-    except ValueError:
-        n = 0
+            self.types[type_name] = v
 
-    return n
+        f.close()
 
+    @staticmethod
+    def str_to_num(s):
+        """
+        Convert type limits from strings to floats for arithmetic.
+        Will force unlimited values to be 0.
+        """
 
-def sanitize_field(field):
-    """
-    Sanitize Metric Fields: replace dot and space with metric_separator. Delete
-    parentheses and quotes. Convert to lower case if configured to do so.
-    """
-    field = field.strip()
-    trans = maketrans(' .', metric_separator * 2)
-    field = field.translate(trans, '()')
-    field = field.replace('"', '')
-    if lowercase_metric_names:
-        field = field.lower()
-    return field
-
-
-def kairosdb_config(c):
-    global host_separator, \
-        metric_separator, lowercase_metric_names, protocol, \
-        tags_map, metric_name, add_host_tag, formatter, pluginsToFormatter, uri, convert_rates
-
-    for child in c.children:
-        if child.key == 'AddHostTag':
-            add_host_tag = child.values[0]
-        elif child.key == 'KairosDBURI':
-            uri = child.values[0]
-        elif child.key == 'TypesDB':
-            for tag in child.values:
-                kairosdb_parse_types_file(tag)
-        elif child.key == 'LowercaseMetricNames':
-            lowercase_metric_names = child.values[0]
-        elif child.key == 'MetricName':
-            metric_name = str(child.values[0])
-        elif child.key == 'HostSeparator':
-            host_separator = child.values[0]
-        elif child.key == 'MetricSeparator':
-            metric_separator = child.values[0]
-        elif child.key == 'ConvertToRate':
-            if not child.values:
-                raise Exception("Missing ConvertToRate values")
-            convert_rates = child.values
-        elif child.key == 'Formatter':
-            pluginsToFormatter = load_plugin_formatters(FORMATTER_DIRECTORY)
-
-            formatter_path = child.values[0]
-            try:
-                formatter = imp.load_source('formatter', formatter_path)
-            except:
-                raise Exception('Could not load formatter %s %s' % (formatter_path, format_exc()))
-        elif child.key == 'Tags':
-            for tag in child.values:
-                tag_parts = tag.split("=")
-                if len(tag_parts) == 2 and len(tag_parts[0]) > 0 and len(tag_parts[1]) > 0:
-                    tags_map[tag_parts[0]] = tag_parts[1]
-                else:
-                    raise Exception("Invalid tag: %s" % tag)
-
-
-def kairosdb_init():
-    import threading
-    global uri, tags_map, add_host_tag, protocol
-
-    # Param validation has to happen here, exceptions thrown in kairosdb_config
-    # do not prevent the plugin from loading.
-    if not uri:
-        raise Exception('KairosDBURI not defined')
-
-    if not tags_map and not add_host_tag:
-        raise Exception('Tags not defined')
-
-    split = uri.strip('/').split(':')
-    # collectd.info(repr(split))
-    if len(split) != 3 and len(split) != 2:
-        raise Exception('KairosDBURI must be in the format of <protocol>://<host>[:<port>]')
-
-    # validate protocol and set default ports
-    protocol = split[0]
-    if protocol == 'http':
-        port = 80
-    elif protocol == 'https':
-        port = 443
-    elif protocol == 'telnet':
-        port = 4242
-    else:
-        raise Exception('Invalid protocol specified. Must be either "http", "https" or "telnet"')
-
-    host = split[1].strip('/')
-
-    if len(split) == 3:
-        port = int(split[2])
-
-    collectd.info('Initializing kairosdb_writer client in %s mode.' % protocol.upper())
-
-    d = {
-        'host': host,
-        'port': port,
-        'lowercase_metric_names': lowercase_metric_names,
-        'conn': None,
-        'lock': threading.Lock(),
-        'values': {},
-        'last_connect_time': 0
-    }
-
-    kairosdb_connect(d)
-
-    collectd.register_write(kairosdb_write, data=d)
-
-
-def kairosdb_connect(data):
-    # collectd.info(repr(data))
-    if not data['conn'] and protocol == 'http':
-        data['conn'] = httplib.HTTPConnection(data['host'], data['port'])
-        return True
-
-    elif not data['conn'] and protocol == 'https':
-        data['conn'] = httplib.HTTPSConnection(data['host'], data['port'])
-        return True
-
-    elif not data['conn'] and protocol == 'telnet':
-        # only attempt reconnect every 10 seconds if protocol of type Telnet
-        now = time()
-        if now - data['last_connect_time'] < 10:
-            return False
-
-        data['last_connect_time'] = now
-        collectd.info('connecting to %s:%s' % (data['host'], data['port']))
-
-        # noinspection PyBroadException
         try:
-            data['conn'] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            data['conn'].connect((data['host'], data['port']))
+            n = float(s)
+        except ValueError:
+            n = 0
+
+        return n
+
+    def sanitize_field(self, field):
+        """
+        Sanitize Metric Fields: replace dot and space with metric_separator. Delete
+        parentheses and quotes. Convert to lower case if configured to do so.
+        """
+        field = field.strip()
+        trans = maketrans(' .', self.metric_separator * 2)
+        field = field.translate(trans, '()')
+        field = field.replace('"', '')
+        if self.lowercase_metric_names:
+            field = field.lower()
+        return field
+
+    def kairosdb_config(self, c):
+        for child in c.children:
+            if child.key == 'AddHostTag':
+                self.add_host_tag = child.values[0]
+            elif child.key == 'KairosDBURI':
+                self.uri = child.values[0]
+            elif child.key == 'TypesDB':
+                for tag in child.values:
+                    self.kairosdb_parse_types_file(tag)
+            elif child.key == 'LowercaseMetricNames':
+                self.lowercase_metric_names = child.values[0]
+            elif child.key == 'MetricName':
+                self.metric_name = str(child.values[0])
+            elif child.key == 'HostSeparator':
+                self.host_separator = child.values[0]
+            elif child.key == 'MetricSeparator':
+                self.metric_separator = child.values[0]
+            elif child.key == 'ConvertToRate':
+                if not child.values:
+                    raise Exception("Missing ConvertToRate values")
+                self.convert_rates = child.values
+            elif child.key == 'Formatter':
+                formatter_path = child.values[0]
+                try:
+                    self.formatter = imp.load_source('formatter', formatter_path)
+                except:
+                    raise Exception('Could not load formatter %s %s' % (formatter_path, format_exc()))
+            elif child.key == "PluginFormatterPath":
+                if child.values:
+                    self.pluginsToFormatter = self.load_plugin_formatters(child.values[0])
+            elif child.key == 'Tags':
+                for tag in child.values:
+                    tag_parts = tag.split("=")
+                    if len(tag_parts) == 2 and len(tag_parts[0]) > 0 and len(tag_parts[1]) > 0:
+                        self.tags_map[tag_parts[0]] = tag_parts[1]
+                    else:
+                        raise Exception("Invalid tag: %s" % tag)
+
+    def kairosdb_init(self):
+        # Param validation has to happen here, exceptions thrown in kairosdb_config
+        # do not prevent the plugin from loading.
+        if not self.uri:
+            raise Exception('KairosDBURI not defined')
+
+        if not self.tags_map and not self.add_host_tag:
+            raise Exception('Tags not defined')
+
+        split = self.uri.strip('/').split(':')
+        # collectd.info(repr(split))
+        if len(split) != 3 and len(split) != 2:
+            raise Exception('KairosDBURI must be in the format of <protocol>://<host>[:<port>]')
+
+        # validate protocol and set default ports
+        self.protocol = split[0]
+        if self.protocol == 'http':
+            port = 80
+        elif self.protocol == 'https':
+            port = 443
+        elif self.protocol == 'telnet':
+            port = 4242
+        else:
+            raise Exception('Invalid protocol specified. Must be either "http", "https" or "telnet"')
+
+        host = split[1].strip('/')
+
+        if len(split) == 3:
+            port = int(split[2])
+
+        collectd.info('Initializing kairosdb_writer client in %s mode.' % self.protocol.upper())
+
+        d = {
+            'host': host,
+            'port': port,
+            'lowercase_metric_names': self.lowercase_metric_names,
+            'conn': None,
+            'lock': threading.Lock(),
+            'values': {},
+            'last_connect_time': 0
+        }
+
+        self.kairosdb_connect(d)
+
+        collectd.register_write(self.kairosdb_write, data=d)
+
+    def kairosdb_connect(self, data):
+        # collectd.info(repr(data))
+        if not data['conn'] and self.protocol == 'http':
+            data['conn'] = httplib.HTTPConnection(data['host'], data['port'])
             return True
-        except:
-            collectd.error('error connecting socket: %s' % format_exc())
-            return False
-    else:
-        return True
 
+        elif not data['conn'] and self.protocol == 'https':
+            data['conn'] = httplib.HTTPSConnection(data['host'], data['port'])
+            return True
 
-def kairosdb_send_telnet_data(data, s):
-    result = False
-    with data['lock']:
-        if not kairosdb_connect(data):
-            collectd.warning('kairosdb_writer: no connection to kairosdb server')
-            return
+        elif not data['conn'] and self.protocol == 'telnet':
+            # only attempt reconnect every 10 seconds if protocol of type Telnet
+            now = time()
+            if now - data['last_connect_time'] < 10:
+                return False
 
-        # noinspection PyBroadException
-        try:
-            if protocol == 'telnet':
-                data['conn'].sendall(s)
-                result = True
-        except socket.error, e:
-            data['conn'] = None
-            if isinstance(e.args, tuple):
-                collectd.warning('kairosdb_writer: socket error %d' % e[0])
-            else:
-                collectd.warning('kairosdb_writer: socket error')
-        except:
-            collectd.warning('kairosdb_writer: error sending data: %s' % format_exc())
+            data['last_connect_time'] = now
+            collectd.info('connecting to %s:%s' % (data['host'], data['port']))
 
-        return result
+            # noinspection PyBroadException
+            try:
+                data['conn'] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                data['conn'].connect((data['host'], data['port']))
+                return True
+            except:
+                collectd.error('error connecting socket: %s' % format_exc())
+                return False
+        else:
+            return True
 
+    def kairosdb_send_telnet_data(self, data, s):
+        result = False
+        with data['lock']:
+            if not self.kairosdb_connect(data):
+                collectd.warning('kairosdb_writer: no connection to kairosdb server')
+                return
 
-def kairosdb_send_http_data(data, json):
-    collectd.debug('Json=%s' % json)
-    with data['lock']:
-        if not kairosdb_connect(data):
-            collectd.warning('kairosdb_writer: no connection to kairosdb server')
-            return
+            # noinspection PyBroadException
+            try:
+                if self.protocol == 'telnet':
+                    data['conn'].sendall(s)
+                    result = True
+            except socket.error, e:
+                data['conn'] = None
+                if isinstance(e.args, tuple):
+                    collectd.warning('kairosdb_writer: socket error %d' % e[0])
+                else:
+                    collectd.warning('kairosdb_writer: socket error')
+            except:
+                collectd.warning('kairosdb_writer: error sending data: %s' % format_exc())
 
-        response = ''
-        try:
-            headers = {'Content-type': 'application/json', 'Connection': 'keep-alive'}
-            data['conn'].request('POST', '/api/v1/datapoints', json, headers)
-            res = data['conn'].getresponse()
-            response = res.read()
-            collectd.debug('Response code: %d' % res.status)
+            return result
 
-            if res.status == 204:
-                exit_code = True
-            else:
-                collectd.error(response)
+    def kairosdb_send_http_data(self, data, json):
+        collectd.debug('Json=%s' % json)
+        with data['lock']:
+            if not self.kairosdb_connect(data):
+                collectd.warning('kairosdb_writer: no connection to kairosdb server')
+                return
+
+            response = ''
+            try:
+                headers = {'Content-type': 'application/json', 'Connection': 'keep-alive'}
+                data['conn'].request('POST', '/api/v1/datapoints', json, headers)
+                res = data['conn'].getresponse()
+                response = res.read()
+                collectd.debug('Response code: %d' % res.status)
+
+                if res.status == 204:
+                    exit_code = True
+                else:
+                    collectd.error(response)
+                    exit_code = False
+
+            except httplib.ImproperConnectionState, e:
+                collectd.error('Lost connection to kairosdb server: %s' % e.message)
+                data['conn'] = None
                 exit_code = False
 
-        except httplib.ImproperConnectionState, e:
-            collectd.error('Lost connection to kairosdb server: %s' % e.message)
-            data['conn'] = None
-            exit_code = False
+            except httplib.HTTPException, e:
+                collectd.error('Error sending http data: %s' % e.message)
+                if response:
+                    collectd.error(response)
+                exit_code = False
 
-        except httplib.HTTPException, e:
-            collectd.error('Error sending http data: %s' % e.message)
-            if response:
-                collectd.error(response)
-            exit_code = False
+            except Exception, e:
+                collectd.error('Error sending http data: %s' % str(e))
+                exit_code = False
 
-        except Exception, e:
-            collectd.error('Error sending http data: %s' % str(e))
-            exit_code = False
+            return exit_code
 
-        return exit_code
+    def kairosdb_write(self, values, data=None):
+        # noinspection PyBroadException
+        try:
+            # collectd.info(repr(v))
+            if values.type not in self.types:
+                collectd.warning('kairosdb_writer: do not know how to handle type %s. do you have all your types.db files configured?' % values.type)
+                return
 
+            v_type = self.types[values.type]
 
-def kairosdb_write(values, data=None):
-    # noinspection PyBroadException
-    try:
-        # collectd.info(repr(v))
-        if values.type not in types:
-            collectd.warning('kairosdb_writer: do not know how to handle type %s. do you have all your types.db files configured?' % values.type)
-            return
+            if len(v_type) != len(values.values):
+                collectd.warning('kairosdb_writer: differing number of values for type %s' % values.type)
+                return
 
-        v_type = types[values.type]
+            hostname = values.host.replace('.', self.host_separator)
 
-        if len(v_type) != len(values.values):
-            collectd.warning('kairosdb_writer: differing number of values for type %s' % values.type)
-            return
+            tags = self.tags_map.copy()
+            if self.add_host_tag:
+                tags['host'] = hostname
 
-        hostname = values.host.replace('.', host_separator)
+            plugin = values.plugin
+            plugin_instance = ''
+            if values.plugin_instance:
+                plugin_instance = self.sanitize_field(values.plugin_instance)
 
-        tags = tags_map.copy()
-        if add_host_tag:
-            tags['host'] = hostname
+            type_name = values.type
+            type_instance = ''
+            if values.type_instance:
+                type_instance = self.sanitize_field(values.type_instance)
 
-        plugin = values.plugin
-        plugin_instance = ''
-        if values.plugin_instance:
-            plugin_instance = sanitize_field(values.plugin_instance)
+            # collectd.info('plugin: %s plugin_instance: %s type: %s type_instance: %s' % (plugin, plugin_instance, type_name, type_instance))
 
-        type_name = values.type
-        type_instance = ''
-        if values.type_instance:
-            type_instance = sanitize_field(values.type_instance)
+            default_name = self.metric_name % {'host': hostname, 'plugin': plugin,
+                                               'plugin_instance': plugin_instance,
+                                               'type': type_name,
+                                               'type_instance': type_instance}
 
-        # collectd.info('plugin: %s plugin_instance: %s type: %s type_instance: %s' % (plugin, plugin_instance, type_name, type_instance))
+            if self.pluginsToFormatter and plugin in self.pluginsToFormatter:
+                name, tags = self.pluginsToFormatter[plugin].format_metric(self.metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
+            elif self.formatter:
+                name, tags = self.formatter.format_metric(self.metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
+            else:
+                name = default_name
 
-        default_name = metric_name % {'host': hostname, 'plugin': plugin,
-                                      'plugin_instance': plugin_instance,
-                                      'type': type_name,
-                                      'type_instance': type_instance}
+            # Remove dots for missing pieces
+            name = name.replace('..', '.')
+            name = name.rstrip('.')
 
-        if pluginsToFormatter and plugin in pluginsToFormatter:
-            name, tags = pluginsToFormatter[plugin].format(metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
-        elif formatter:
-            name, tags = formatter.format(metric_name, tags, hostname, plugin, plugin_instance, type_name, type_instance)
+            # collectd.info('Metric: %s' % name)
+
+            type_list = list(v_type)
+            values_list = list(values.values)
+
+            if plugin in self.convert_rates:
+                i = 0
+                type_list = []
+                values_list = []
+                for value in values.values:
+                    if self.is_counter(v_type[i]):
+                        counter = "%s.%s" % (default_name, v_type[i][0])
+
+                        with data['lock']:
+                            if value is not None:
+                                if counter in self.counters_map:
+                                    old_value = self.counters_map[counter]
+                                    try:
+                                        rate = (value - old_value['value']) / (
+                                            values.time - old_value['timestamp'])
+                                        values_list.append(rate)
+                                        type_list.append(
+                                            [v_type[i][0] + '_rate', 'GAUGE', '0',
+                                             'U'])
+                                    except ZeroDivisionError:
+                                        collectd.error(
+                                            "Timestamp values are identical (caused divide by error) for %s" + default_name)
+                                self.counters_map[counter] = {'value': value, 'timestamp': values.time}
+                    else:
+                        values_list.append(value)
+                        type_list.append(v_type[i])
+                    i += 1
+
+            if self.protocol == 'http' or self.protocol == 'https':
+                self.kairosdb_write_http_metrics(data, type_list, values.time, values_list, name, tags)
+            else:
+                self.kairosdb_write_telnet_metrics(data, type_list, values.time, values_list, name, tags)
+        except Exception:
+            collectd.error(traceback.format_exc())
+
+    @staticmethod
+    def is_counter(value_type):
+        return value_type[1] == 'DERIVE' or value_type[1] == 'COUNTER'
+
+    def kairosdb_write_telnet_metrics(self, data, types_list, timestamp, values, name, tags):
+        tag_string = ""
+
+        for tn, tv in tags.iteritems():
+            tag_string += "%s=%s " % (tn, tv)
+
+        lines = []
+        i = 0
+        for value in values:
+            ds_name = types_list[i][0]
+            new_name = "%s.%s" % (name, ds_name)
+            new_value = value
+            collectd.debug("metric new_name= %s" % new_name)
+
+            if new_value is not None:
+                line = 'put %s %d %f %s' % (new_name, timestamp, new_value, tag_string)
+                collectd.debug(line)
+                lines.append(line)
+
+            i += 1
+
+        lines.append('')
+        self.kairosdb_send_telnet_data(data, '\n'.join(lines))
+
+    def kairosdb_write_http_metrics(self, data, types_list, timestamp, values, name, tags):
+        time_in_seconds = timestamp * 1000
+        json = '['
+        i = 0
+        for value in values:
+            ds_name = types_list[i][0]
+            new_name = "%s.%s" % (name, ds_name)
+            new_value = value
+            collectd.debug("metric new_name= %s" % new_name)
+
+            if new_value is not None:
+                if i > 0:
+                    json += ','
+
+                json += '{'
+                json += '"name":"%s",' % new_name
+                json += '"datapoints":[[%d, %f]],' % (time_in_seconds, new_value)
+                json += '"tags": {'
+
+                first = True
+                for tn, tv in tags.iteritems():
+                    if first:
+                        first = False
+                    else:
+                        json += ", "
+
+                    json += '"%s": "%s"' % (tn, tv)
+
+                json += '}'
+
+                json += '}'
+            i += 1
+
+        json += ']'
+
+        collectd.debug(json)
+        self.kairosdb_send_http_data(data, json)
+
+    @staticmethod
+    def load_plugin_formatters(formatter_directory):
+        if os.path.exists(formatter_directory):
+            plugins_to_format = {}
+            for filename in os.listdir(formatter_directory):
+                if filename.endswith(".py"):
+                    formatter_name, extension = os.path.splitext(filename)
+                    plugin_formatter = imp.load_source(formatter_name, formatter_directory + "/" + filename)
+                    for plugin in plugin_formatter.plugins():
+                        plugins_to_format[plugin] = plugin_formatter
+
+            return plugins_to_format
         else:
-            name = default_name
-
-        # Remove dots for missing pieces
-        name = name.replace('..', '.')
-        name = name.rstrip('.')
-
-        # collectd.info('Metric: %s' % name)
-
-        type_list = list(v_type)
-        values_list = list(values.values)
-
-        if plugin in convert_rates:
-            i = 0
-            type_list = []
-            values_list = []
-            for value in values.values:
-                if is_counter(v_type[i]):
-                    counter = "%s.%s" % (default_name, v_type[i][0])
-
-                    with data['lock']:
-                        if value is not None:
-                            if counter in counters_map:
-                                old_value = counters_map[counter]
-                                try:
-                                    rate = (value - old_value['value']) / (
-                                        values.time - old_value['timestamp'])
-                                    values_list.append(rate)
-                                    type_list.append(
-                                        [v_type[i][0] + '_rate', 'GAUGE', '0',
-                                         'U'])
-                                except ZeroDivisionError:
-                                    collectd.error(
-                                        "Timestamp values are identical (caused divide by error) for %s" + default_name)
-                            counters_map[counter] = {'value': value, 'timestamp': values.time}
-                else:
-                    values_list.append(value)
-                    type_list.append(v_type[i])
-                i += 1
-
-        if protocol == 'http' or protocol == 'https':
-            kairosdb_write_http_metrics(data, type_list, values.time, values_list, name, tags)
-        else:
-            kairosdb_write_telnet_metrics(data, type_list, values.time, values_list, name, tags)
-    except Exception:
-        collectd.error(traceback.format_exc())
+            return {}
 
 
-def is_counter(value_type):
-    return value_type[1] == 'DERIVE' or value_type[1] == 'COUNTER'
-
-
-def kairosdb_write_telnet_metrics(data, types_list, timestamp, values, name, tags):
-    tag_string = ""
-
-    for tn, tv in tags.iteritems():
-        tag_string += "%s=%s " % (tn, tv)
-
-    lines = []
-    i = 0
-    for value in values:
-        ds_name = types_list[i][0]
-        new_name = "%s.%s" % (name, ds_name)
-        new_value = value
-        collectd.debug("metric new_name= %s" % new_name)
-
-        if new_value is not None:
-            line = 'put %s %d %f %s' % (new_name, timestamp, new_value, tag_string)
-            collectd.debug(line)
-            lines.append(line)
-
-        i += 1
-
-    lines.append('')
-    kairosdb_send_telnet_data(data, '\n'.join(lines))
-
-
-def kairosdb_write_http_metrics(data, types_list, timestamp, values, name, tags):
-    time_in_seconds = timestamp * 1000
-    json = '['
-    i = 0
-    for value in values:
-        ds_name = types_list[i][0]
-        new_name = "%s.%s" % (name, ds_name)
-        new_value = value
-        collectd.debug("metric new_name= %s" % new_name)
-
-        if new_value is not None:
-            if i > 0:
-                json += ','
-
-            json += '{'
-            json += '"name":"%s",' % new_name
-            json += '"datapoints":[[%d, %f]],' % (time_in_seconds, new_value)
-            json += '"tags": {'
-
-            first = True
-            for tn, tv in tags.iteritems():
-                if first:
-                    first = False
-                else:
-                    json += ", "
-
-                json += '"%s": "%s"' % (tn, tv)
-
-            json += '}'
-
-            json += '}'
-        i += 1
-
-    json += ']'
-
-    collectd.debug(json)
-    kairosdb_send_http_data(data, json)
-
-
-def load_plugin_formatters(formatter_directory):
-    if os.path.exists(formatter_directory):
-        plugins_to_format = {}
-        for filename in os.listdir(formatter_directory):
-            if filename.endswith(".py"):
-                formatter_name, extension = os.path.splitext(filename)
-                plugin_formatter = imp.load_source(formatter_name, formatter_directory + "/" + filename)
-                for plugin in plugin_formatter.plugins():
-                    plugins_to_format[plugin] = plugin_formatter
-
-        return plugins_to_format
-    else:
-        return {}
-
-collectd.register_config(kairosdb_config)
-collectd.register_init(kairosdb_init)
+writer = KairosdbWriter()
+collectd.register_config(writer.kairosdb_config)
+collectd.register_init(writer.kairosdb_init)

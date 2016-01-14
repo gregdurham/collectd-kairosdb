@@ -6,9 +6,9 @@
 # class Formatter:
 
 # For column families, remove plugin_instance from name and change plugin name to "cassandra" and add column_families as a tag
-def format(metric_name_template, tags, hostname, plugin, plugin_instance, type, type_instance):
+def format_metric(metric_name_template, tags, hostname, plugin, plugin_instance, type, type_instance):
     if plugin == 'column_family':
         metric_name_template = metric_name_template.replace('%(plugin_instance)s.', '')
         tags['column_family'] = plugin_instance
         plugin = 'cassandra'
-    return (metric_name_template % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type, 'type_instance': type_instance}, tags)
+    return metric_name_template % {'host': hostname, 'plugin': plugin, 'plugin_instance': plugin_instance, 'type': type, 'type_instance': type_instance}, tags

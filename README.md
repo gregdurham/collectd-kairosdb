@@ -38,6 +38,8 @@ Add the following to your collectd config **or** use the included kairosdb.conf.
 
 *Formatter* - the full path to a formatter.  See the Formatters section below.
 
+*PluginFormatterPath* - the path to the directory where plugin formatters exist. Optional. See the Formatters section below. 
+
 *HostSeparator* - separator character used between host name parts. Defaults to underscore("_").  
   
 *LowercaseMetricNames* - lower cases the metric name if true. Defaults to false.  
