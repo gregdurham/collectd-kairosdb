@@ -226,6 +226,7 @@ class KairosdbWriter:
                     data['conn'].sendall(s)
                     result = True
             except socket.error, e:
+                data['conn'].close()
                 data['conn'] = None
                 if isinstance(e.args, tuple):
                     collectd.warning('kairosdb_writer: socket error %d' % e[0])
@@ -259,6 +260,7 @@ class KairosdbWriter:
 
             except httplib.ImproperConnectionState, e:
                 collectd.error('Lost connection to kairosdb server: %s' % e.message)
+                data['conn'].close()
                 data['conn'] = None
                 exit_code = False
 
