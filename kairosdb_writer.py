@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
-#  Version 1.1
+#  Version 1.2
 
 # noinspection PyUnresolvedReferences
 import collectd
