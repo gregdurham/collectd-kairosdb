@@ -186,12 +186,20 @@ class KairosdbWriter:
     def kairosdb_connect(self, data):
         # collectd.info(repr(data))
         if not data['conn'] and self.protocol == 'http':
-            data['conn'] = httplib.HTTPConnection(data['host'], data['port'])
-            return True
+            try:
+                data['conn'] = httplib.HTTPConnection(data['host'], data['port'])
+                return True
+            except:
+                collectd.error('error connecting to http connection: %s' % format_exc())
+                return False
 
         elif not data['conn'] and self.protocol == 'https':
-            data['conn'] = httplib.HTTPSConnection(data['host'], data['port'])
-            return True
+            try:
+                data['conn'] = httplib.HTTPSConnection(data['host'], data['port'])
+                return True
+            except:
+                collectd.error('error connecting to https connection: %s' % format_exc())
+                return False
 
         elif not data['conn'] and self.protocol == 'telnet':
             # only attempt reconnect every 10 seconds if protocol of type Telnet
@@ -213,6 +221,12 @@ class KairosdbWriter:
         else:
             return True
 
+    @staticmethod
+    def reset_connection(data):
+        collectd.error('Resetting connection to kairosdb server')
+        data['conn'].close()
+        data['conn'] = None
+
     def kairosdb_send_telnet_data(self, data, s):
         result = False
         with data['lock']:
@@ -226,13 +240,13 @@ class KairosdbWriter:
                     data['conn'].sendall(s)
                     result = True
             except socket.error, e:
-                data['conn'].close()
-                data['conn'] = None
+                self.reset_connection(data)
                 if isinstance(e.args, tuple):
                     collectd.warning('kairosdb_writer: socket error %d' % e[0])
                 else:
                     collectd.warning('kairosdb_writer: socket error')
             except:
+                self.reset_connection(data)
                 collectd.warning('kairosdb_writer: error sending data: %s' % format_exc())
 
             return result
@@ -240,6 +254,9 @@ class KairosdbWriter:
     def kairosdb_send_http_data(self, data, json):
         collectd.debug('Json=%s' % json)
         with data['lock']:
+            if len(json) < 1 or json == '[]':
+                # No data
+                return
             if not self.kairosdb_connect(data):
                 collectd.warning('kairosdb_writer: no connection to kairosdb server')
                 return
@@ -259,18 +276,19 @@ class KairosdbWriter:
                     exit_code = False
 
             except httplib.ImproperConnectionState, e:
+                self.reset_connection(data)
                 collectd.error('Lost connection to kairosdb server: %s' % e.message)
-                data['conn'].close()
-                data['conn'] = None
                 exit_code = False
 
             except httplib.HTTPException, e:
+                self.reset_connection(data)
                 collectd.error('Error sending http data: %s' % e.message)
                 if response:
                     collectd.error(response)
                 exit_code = False
 
             except Exception, e:
+                self.reset_connection(data)
                 collectd.error('Error sending http data: %s' % str(e))
                 exit_code = False
 
@@ -279,7 +297,7 @@ class KairosdbWriter:
     def kairosdb_write(self, values, data=None):
         # noinspection PyBroadException
         try:
-            # collectd.info(repr(v))
+            # collectd.info(repr(values))
             if values.type not in self.types:
                 collectd.warning('kairosdb_writer: do not know how to handle type %s. do you have all your types.db files configured?' % values.type)
                 return
@@ -393,7 +411,7 @@ class KairosdbWriter:
         self.kairosdb_send_telnet_data(data, '\n'.join(lines))
 
     def kairosdb_write_http_metrics(self, data, types_list, timestamp, values, name, tags):
-        time_in_seconds = timestamp * 1000
+        time_in_milliseconds = timestamp * 1000
         json = '['
         i = 0
         for value in values:
@@ -408,7 +426,7 @@ class KairosdbWriter:
 
                 json += '{'
                 json += '"name":"%s",' % new_name
-                json += '"datapoints":[[%d, %f]],' % (time_in_seconds, new_value)
+                json += '"datapoints":[[%d, %f]],' % (time_in_milliseconds, new_value)
                 json += '"tags": {'
 
                 first = True

@@ -5,6 +5,8 @@ import HttpServer
 import collectd
 import json
 
+PORT = "8889"
+
 
 def now():
     return datetime.datetime.now()
@@ -39,13 +41,13 @@ def setup_config(writer, config):
     writer.kairosdb_init()
 
 
-CONFIG_DEFAULT = [Child('KairosDBURI', ['http://localhost:8888']),
+CONFIG_DEFAULT = [Child('KairosDBURI', ['http://localhost:' + PORT]),
                   Child('LowercaseMetricNames', ['true']),
                   Child('TypesDB', ['./Types.db']),
                   Child('Tags', ["role=web01", "environment=lab"])
                   ]
 
-CONFIG_WITH_FORMATTER = [Child('KairosDBURI', ['http://localhost:8888']),
+CONFIG_WITH_FORMATTER = [Child('KairosDBURI', ['http://localhost:' + PORT]),
                          Child('LowercaseMetricNames', ['true']),
                          Child('TypesDB', ['./Types.db']),
                          Child('Tags', ["role=web01", "environment=lab"]),
@@ -53,26 +55,26 @@ CONFIG_WITH_FORMATTER = [Child('KairosDBURI', ['http://localhost:8888']),
                          Child('PluginFormatterPath', ['formatters'])
                          ]
 
-CONFIG_RATE = [Child('KairosDBURI', ['http://localhost:8888']),
+CONFIG_RATE = [Child('KairosDBURI', ['http://localhost:' + PORT]),
                Child('LowercaseMetricNames', ['true']),
                Child('TypesDB', ['./Types.db']),
                Child('ConvertToRate',
                      ["interface", "cpu", "mysql_handler", "mysql_qcache"])
                ]
 
-CONFIG_RATE_NO_VALUES = [Child('KairosDBURI', ['http://localhost:8888']),
+CONFIG_RATE_NO_VALUES = [Child('KairosDBURI', ['http://localhost:' + PORT]),
                          Child('LowercaseMetricNames', ['true']),
                          Child('TypesDB', ['./Types.db']),
                          Child('ConvertToRate', [])
                          ]
 
-CONFIG_INVALID_TAG = [Child('KairosDBURI', ['http://localhost:8888']),
+CONFIG_INVALID_TAG = [Child('KairosDBURI', ['http://localhost:' + PORT]),
                       Child('LowercaseMetricNames', ['true']),
                       Child('TypesDB', ['./Types.db']),
                       Child('Tags', ["role=web01", "environment"])
                       ]
 
-CONFIG_INVALID_FORMATTER = [Child('KairosDBURI', ['http://localhost:8888']),
+CONFIG_INVALID_FORMATTER = [Child('KairosDBURI', ['http://localhost:' + PORT]),
                             Child('LowercaseMetricNames', ['true']),
                             Child('TypesDB', ['./Types.db']),
                             Child('Formatter', ['/bogus/BogusFormatter.py'])
@@ -90,7 +92,7 @@ CONFIG_INVALID_URL = [Child('KairosDBURI', ['http//localhost']),
                       Child('Tags', ["role=web01", "environment=lab"])
                       ]
 
-CONFIG_INVALID_URL_PROTOCOL = [Child('KairosDBURI', ['file//localhost:8888']),
+CONFIG_INVALID_URL_PROTOCOL = [Child('KairosDBURI', ['file//localhost:' + PORT]),
                                Child('LowercaseMetricNames', ['true']),
                                Child('TypesDB', ['./Types.db']),
                                Child('Tags', ["role=web01", "environment=lab"])
@@ -106,7 +108,7 @@ class TestKairosdbWrite(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.server = HttpServer.HttpServer(8888)
+        cls.server = HttpServer.HttpServer(int(PORT))
 
     @classmethod
     def tearDownClass(cls):
@@ -212,9 +214,9 @@ class TestKairosdbWrite(TestCase):
         values = Values('cpu', 'softirq', 'cpu', '0', 'localhost', 1442868136, 10.0, [10])
 
         self.writer.kairosdb_write(values, collectd.get_data())
-        result = json.loads(self.server.get_data())
+        result = self.server.get_data()
 
-        self.assertEquals(result, [])  # First value so can't calculate rate so no data is sent to Kairos
+        self.assertEquals(result, None)  # First value so can't calculate rate so no data is sent to Kairos
 
         values = Values('cpu', 'softirq', 'cpu', '0', 'localhost', 1442868137, 10.0, [11])
         self.writer.kairosdb_write(values, collectd.get_data())
@@ -255,9 +257,9 @@ class TestKairosdbWrite(TestCase):
                         1442868136, 10.0, [10, 11])
 
         self.writer.kairosdb_write(values, collectd.get_data())
-        result = json.loads(self.server.get_data())
+        result = self.server.get_data()
 
-        self.assertEquals(result, [])  # First value so can't calculate rate so no data is sent to Kairos
+        self.assertEquals(result, None)  # First value so can't calculate rate so no data is sent to Kairos
 
         values = Values('if_packets', 'eth0', 'interface', '', 'localhost',
                         1442868137, 10.0, [11, 13])
@@ -313,16 +315,16 @@ class TestKairosdbWrite(TestCase):
                         1442868136, 10.0, [10])
 
         self.writer.kairosdb_write(values, collectd.get_data())
-        result = json.loads(self.server.get_data())
+        result = self.server.get_data()
 
-        self.assertEquals(result, [])  # First value so can't calculate rate so no data is sent to Kairos
+        self.assertEquals(result, None)  # First value so can't calculate rate so no data is sent to Kairos
 
         values = Values('mysql_handler', '', 'mysql_handler', '', 'localhost',
                         1442868136, 10.0, [11])
         self.writer.kairosdb_write(values, collectd.get_data())
-        result = json.loads(self.server.get_data())
+        result = self.server.get_data()
 
-        self.assertEquals(result, [])
+        self.assertEquals(result, None)
 
     def test_load_plugin_formatters(self):
         """
