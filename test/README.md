@@ -1,0 +1,1 @@
+You can run tests from Intellij by right-clicking on the test folder and selecting "Run Unitests in test"

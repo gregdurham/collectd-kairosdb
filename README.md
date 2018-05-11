@@ -58,6 +58,10 @@ Add the following to your collectd config **or** use the included kairosdb.conf.
      
 *Tags* - KairosDB tags to send. At least one tag is required. The host name is added as a tag by default unless AddHostTag is set to false. For example, "customer=acme"
 
+*ThrowawaySampleAge* - Discards metrics if they have not been sent to Kairos in a certain period of time. The time specified is in seconds. Some plugins collect such a large number of metrics that the pushing of metrics may take so much time that not all metrics are sent to Kairos before the next reporting cycle. This option will discard any metrics that are not sent after the specified period of time.
+
+*VerboseLogging* - Add additional logging information.
+
 
 ### Formatters
 Formatters provide a way to customize the metric name or tags. A formatter is a python script that has a format function. See the ./examples/defaultFormatter.py for an example of a default formatter.
