@@ -247,9 +247,12 @@ class KairosdbWriter:
 
     @staticmethod
     def reset_connection(data):
-        collectd.error('Resetting connection to kairosdb server')
-        data['conn'].close()
-        data['conn'] = None
+        try:
+            collectd.error('Resetting connection to kairosdb server')
+            data['conn'].close()
+            data['conn'] = None
+        except:
+            collectd.error('Failed to close connection')
 
     def kairosdb_send_telnet_data(self, data, s):
         result = False
@@ -277,81 +280,80 @@ class KairosdbWriter:
 
     def kairosdb_send_http_data(self, data, json, ts, name):
         collectd.debug('Json=%s' % json)
-        with data['lock']:
-            if len(json) < 1 or json == '[]':
-                # No data
-                return
-            if not self.kairosdb_connect(data):
-                collectd.warning('kairosdb_writer: no connection to kairosdb server')
-                return
+        if len(json) < 1 or json == '[]':
+            # No data
+            return
+        if not self.kairosdb_connect(data):
+            collectd.warning('kairosdb_writer: no connection to kairosdb server')
+            return
 
-            ts_diff = time() - ts
-            ts_diff_m = ts_diff / 60
-            to_send = True
-    
-            if self.throwaway_sample_age and ts_diff > self.throwaway_sample_age:
-                to_send = False
-    
-            if to_send:
-                sent_decision = 'sent'
-                with data['lock']:
-                    if not self.kairosdb_connect(data):
-                        collectd.warning('kairosdb_writer: no connection to kairosdb server')
-                        return
-    
-                    response = ''
-                    try:
-                        headers = {'Content-type': 'application/json', 'Connection': 'keep-alive'}
-                        data['conn'].request('POST', '/api/v1/datapoints', json, headers)
-                        res = data['conn'].getresponse()
-                        response = res.read()
-                        collectd.debug('Response code: %d' % res.status)
-                        http_code = res.status
-    
-                        if res.status == 204:
-                            exit_code = True
-                            self.samples_sent += 1
-                        else:
-                            self.reset_connection(data)
-                            collectd.error(res.status)
-                            if response:
-                                collectd.error(response)
-                            exit_code = False
-                            self.samples_error += 1
-    
-                    except httplib.ImproperConnectionState, e:
-                        self.reset_connection(data)
-                        collectd.error('Lost connection to kairosdb server: %s' % e.message)
-                        exit_code = False
-                        self.samples_error += 1
-    
-                    except httplib.HTTPException, e:
-                        self.reset_connection(data)
-                        collectd.error('Error sending http data: %s' % e.message)
+        ts_diff = time() - ts
+        ts_diff_m = ts_diff / 60
+        to_send = True
+
+        if self.throwaway_sample_age and ts_diff > self.throwaway_sample_age:
+            to_send = False
+
+        if to_send:
+            sent_decision = 'sent'
+            with data['lock']:
+                if not self.kairosdb_connect(data):
+                    collectd.warning('kairosdb_writer: no connection to kairosdb server')
+                    return
+
+                response = ''
+                try:
+                    headers = {'Content-type': 'application/json', 'Connection': 'keep-alive'}
+                    data['conn'].request('POST', '/api/v1/datapoints', json, headers)
+                    res = data['conn'].getresponse()
+                    response = res.read()
+                    collectd.debug('Response code: %d' % res.status)
+                    http_code = res.status
+
+                    if res.status == 204:
+                        exit_code = True
+                        self.samples_sent += 1
+                    else:
+                        collectd.error(res.status)
                         if response:
                             collectd.error(response)
-                        exit_code = False
-                        self.samples_error += 1
-    
-                    except Exception, e:
                         self.reset_connection(data)
-                        collectd.error('Error sending http data: %s' % str(e))
                         exit_code = False
                         self.samples_error += 1
-            else:
-                http_code = 0
-                self.samples_dropped += 1
-                sent_decision = 'dropped'
-                exit_code = True
-    
-    
-            if self.verbose_logging:
-                drop_rate = float(0)
-                if self.samples_dropped > 0 and self.samples_sent > 1:
-                    drop_rate = float(self.samples_dropped) / float(self.samples_sent) * 100
-                collectd.info("-> [%s] [delay=%d s / %.2f m / sent=%s s=%d d=%d e=%d drop_rate=%.2f %% ]: writing sample [ http=%d ] [ %s ]" % (datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%m:%S"), ts_diff, ts_diff_m, sent_decision, self.samples_sent, self.samples_dropped, self.samples_error, drop_rate, http_code, json))
-    
-            return exit_code
+
+                except httplib.ImproperConnectionState, e:
+                    collectd.error('Lost connection to kairosdb server: %s' % e.message)
+                    self.reset_connection(data)
+                    exit_code = False
+                    self.samples_error += 1
+
+                except httplib.HTTPException, e:
+                    collectd.error('Error sending http data: %s' % e.message)
+                    if response:
+                        collectd.error(response)
+                    self.reset_connection(data)
+                    exit_code = False
+                    self.samples_error += 1
+
+                except Exception, e:
+                    collectd.error('Error sending http data: %s' % str(e))
+                    self.reset_connection(data)
+                    exit_code = False
+                    self.samples_error += 1
+        else:
+            http_code = 0
+            self.samples_dropped += 1
+            sent_decision = 'dropped'
+            exit_code = True
+
+
+        if self.verbose_logging:
+            drop_rate = float(0)
+            if self.samples_dropped > 0 and self.samples_sent > 1:
+                drop_rate = float(self.samples_dropped) / float(self.samples_sent) * 100
+            collectd.info("-> [%s] [delay=%d s / %.2f m / sent=%s s=%d d=%d e=%d drop_rate=%.2f %% ]: writing sample [ http=%d ] [ %s ]" % (datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%m:%S"), ts_diff, ts_diff_m, sent_decision, self.samples_sent, self.samples_dropped, self.samples_error, drop_rate, http_code, json))
+
+        return exit_code
 
     def kairosdb_write(self, values, data=None):
         # noinspection PyBroadException
