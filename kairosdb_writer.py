@@ -23,6 +23,7 @@ import imp
 import os
 from string import maketrans
 from time import time
+import datetime
 from traceback import format_exc
 import threading
 
@@ -43,6 +44,11 @@ class KairosdbWriter:
         self.counters_map = {}  # store the last value and timestamp for each value of type from DERIVE and COUNTER
         self.lowercase_metric_names = False
         self.protocol = None
+        self.samples_sent = 0
+        self.samples_dropped = 0
+        self.samples_error = 0
+        self.verbose_logging = False
+        self.throwaway_sample_age = False
 
     def kairosdb_parse_types_file(self, path):
         f = open(path, 'r')
@@ -136,6 +142,22 @@ class KairosdbWriter:
                         self.tags_map[tag_parts[0]] = tag_parts[1]
                     else:
                         raise Exception("Invalid tag: %s" % tag)
+            elif child.key == 'ThrowawaySampleAge':
+                if not child.values:
+                    raise Exception("Missing %s value, must be in seconds" % child.key)
+                try:
+                   self.throwaway_sample_age = int(child.values[0])
+                except Exception as ex:
+                    self.throwaway_sample_age = False
+                    raise Exception("%s requires time in seconds: %s" % (child.key, str(ex)))
+            elif child.key == 'VerboseLogging':
+                if isinstance(child.values[0], bool):
+                    self.verbose_logging = bool(child.values[0])
+                elif isinstance(child.values[0], str):
+                    if str.lower(child.values[0]) == 'true':
+                        self.verbose_logging = True
+                    else:
+                        self.verbose_logging = False
 
     def kairosdb_init(self):
         # Param validation has to happen here, exceptions thrown in kairosdb_config
@@ -187,6 +209,7 @@ class KairosdbWriter:
         # collectd.info(repr(data))
         if not data['conn'] and self.protocol == 'http':
             try:
+                collectd.info("connecting pid=%d host=%s port=%s proto=%s" % (os.getpid(), data['host'], data['port'], self.protocol))
                 data['conn'] = httplib.HTTPConnection(data['host'], data['port'])
                 return True
             except:
@@ -195,6 +218,7 @@ class KairosdbWriter:
 
         elif not data['conn'] and self.protocol == 'https':
             try:
+                collectd.info("connecting pid=%d host=%s port=%s proto=%s" % (os.getpid(), data['host'], data['port'], self.protocol))
                 data['conn'] = httplib.HTTPSConnection(data['host'], data['port'])
                 return True
             except:
@@ -251,7 +275,7 @@ class KairosdbWriter:
 
             return result
 
-    def kairosdb_send_http_data(self, data, json):
+    def kairosdb_send_http_data(self, data, json, ts, name):
         collectd.debug('Json=%s' % json)
         with data['lock']:
             if len(json) < 1 or json == '[]':
@@ -261,37 +285,72 @@ class KairosdbWriter:
                 collectd.warning('kairosdb_writer: no connection to kairosdb server')
                 return
 
-            response = ''
-            try:
-                headers = {'Content-type': 'application/json', 'Connection': 'keep-alive'}
-                data['conn'].request('POST', '/api/v1/datapoints', json, headers)
-                res = data['conn'].getresponse()
-                response = res.read()
-                collectd.debug('Response code: %d' % res.status)
-
-                if res.status == 204:
-                    exit_code = True
-                else:
-                    collectd.error(response)
-                    exit_code = False
-
-            except httplib.ImproperConnectionState, e:
-                self.reset_connection(data)
-                collectd.error('Lost connection to kairosdb server: %s' % e.message)
-                exit_code = False
-
-            except httplib.HTTPException, e:
-                self.reset_connection(data)
-                collectd.error('Error sending http data: %s' % e.message)
-                if response:
-                    collectd.error(response)
-                exit_code = False
-
-            except Exception, e:
-                self.reset_connection(data)
-                collectd.error('Error sending http data: %s' % str(e))
-                exit_code = False
-
+            ts_diff = time() - ts
+            ts_diff_m = ts_diff / 60
+            to_send = True
+    
+            if self.throwaway_sample_age and ts_diff > self.throwaway_sample_age:
+                to_send = False
+    
+            if to_send:
+                sent_decision = 'sent'
+                with data['lock']:
+                    if not self.kairosdb_connect(data):
+                        collectd.warning('kairosdb_writer: no connection to kairosdb server')
+                        return
+    
+                    response = ''
+                    try:
+                        headers = {'Content-type': 'application/json', 'Connection': 'keep-alive'}
+                        data['conn'].request('POST', '/api/v1/datapoints', json, headers)
+                        res = data['conn'].getresponse()
+                        response = res.read()
+                        collectd.debug('Response code: %d' % res.status)
+                        http_code = res.status
+    
+                        if res.status == 204:
+                            exit_code = True
+                            self.samples_sent += 1
+                        else:
+                            self.reset_connection(data)
+                            collectd.error(res.status)
+                            if response:
+                                collectd.error(response)
+                            exit_code = False
+                            self.samples_error += 1
+    
+                    except httplib.ImproperConnectionState, e:
+                        self.reset_connection(data)
+                        collectd.error('Lost connection to kairosdb server: %s' % e.message)
+                        exit_code = False
+                        self.samples_error += 1
+    
+                    except httplib.HTTPException, e:
+                        self.reset_connection(data)
+                        collectd.error('Error sending http data: %s' % e.message)
+                        if response:
+                            collectd.error(response)
+                        exit_code = False
+                        self.samples_error += 1
+    
+                    except Exception, e:
+                        self.reset_connection(data)
+                        collectd.error('Error sending http data: %s' % str(e))
+                        exit_code = False
+                        self.samples_error += 1
+            else:
+                http_code = 0
+                self.samples_dropped += 1
+                sent_decision = 'dropped'
+                exit_code = True
+    
+    
+            if self.verbose_logging:
+                drop_rate = float(0)
+                if self.samples_dropped > 0 and self.samples_sent > 1:
+                    drop_rate = float(self.samples_dropped) / float(self.samples_sent) * 100
+                collectd.info("-> [%s] [delay=%d s / %.2f m / sent=%s s=%d d=%d e=%d drop_rate=%.2f %% ]: writing sample [ http=%d ] [ %s ]" % (datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%m:%S"), ts_diff, ts_diff_m, sent_decision, self.samples_sent, self.samples_dropped, self.samples_error, drop_rate, http_code, json))
+    
             return exit_code
 
     def kairosdb_write(self, values, data=None):
@@ -446,7 +505,7 @@ class KairosdbWriter:
         json += ']'
 
         collectd.debug(json)
-        self.kairosdb_send_http_data(data, json)
+        self.kairosdb_send_http_data(data, json, timestamp, name)
 
     @staticmethod
     def load_plugin_formatters(formatter_directory):
