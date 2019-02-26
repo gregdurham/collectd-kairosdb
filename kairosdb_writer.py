@@ -27,6 +27,8 @@ import datetime
 from traceback import format_exc
 import threading
 
+def isNaN(num):
+	return num != num
 
 class KairosdbWriter:
 
@@ -354,7 +356,7 @@ class KairosdbWriter:
             collectd.info("-> [%s] [delay=%d s / %.2f m / sent=%s s=%d d=%d e=%d drop_rate=%.2f %% ]: writing sample [ http=%d ] [ %s ]" % (datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%m:%S"), ts_diff, ts_diff_m, sent_decision, self.samples_sent, self.samples_dropped, self.samples_error, drop_rate, http_code, json))
 
         return exit_code
-
+        
     def kairosdb_write(self, values, data=None):
         # noinspection PyBroadException
         try:
@@ -406,7 +408,7 @@ class KairosdbWriter:
             # collectd.info('Metric: %s' % name)
 
             type_list = list(v_type)
-            values_list = list(values.values)
+            values_list = list(filter(lambda v: not isNaN(v), values.values))
 
             if plugin in self.convert_rates:
                 i = 0
