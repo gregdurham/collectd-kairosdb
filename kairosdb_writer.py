@@ -51,6 +51,7 @@ class KairosdbWriter:
         self.samples_error = 0
         self.verbose_logging = False
         self.throwaway_sample_age = False
+        self.http_timeout = 60 * 5
 
     def kairosdb_parse_types_file(self, path):
         f = open(path, 'r')
@@ -160,6 +161,15 @@ class KairosdbWriter:
                         self.verbose_logging = True
                     else:
                         self.verbose_logging = False
+            elif child.key == 'HttpTimeout':
+                if not child.values:
+                    raise Exception("Missing %s value, must be in seconds" % child.key)
+                try:
+                   self.http_timeout = int(child.values[0])
+                except Exception as ex:
+                    self.http_timeout = 0
+                    raise Exception("%s requires time in seconds: %s" % (child.key, str(ex)))
+            
 
     def kairosdb_init(self):
         # Param validation has to happen here, exceptions thrown in kairosdb_config
@@ -211,8 +221,8 @@ class KairosdbWriter:
         # collectd.info(repr(data))
         if not data['conn'] and self.protocol == 'http':
             try:
-                collectd.info("connecting pid=%d host=%s port=%s proto=%s" % (os.getpid(), data['host'], data['port'], self.protocol))
-                data['conn'] = httplib.HTTPConnection(data['host'], data['port'])
+                collectd.info("connecting pid=%d host=%s port=%s proto=%s http_timeout=%d" % (os.getpid(), data['host'], data['port'], self.protocol, self.http_timeout))
+                data['conn'] = httplib.HTTPConnection(data['host'], data['port'], timeout=self.http_timeout)
                 return True
             except:
                 collectd.error('error connecting to http connection: %s' % format_exc())
@@ -220,8 +230,8 @@ class KairosdbWriter:
 
         elif not data['conn'] and self.protocol == 'https':
             try:
-                collectd.info("connecting pid=%d host=%s port=%s proto=%s" % (os.getpid(), data['host'], data['port'], self.protocol))
-                data['conn'] = httplib.HTTPSConnection(data['host'], data['port'])
+                collectd.info("connecting pid=%d host=%s port=%s proto=%s http_timeout=%d" % (os.getpid(), data['host'], data['port'], self.protocol, self.http_timeout))
+                data['conn'] = httplib.HTTPSConnection(data['host'], data['port'], timeout=self.http_timeout)
                 return True
             except:
                 collectd.error('error connecting to https connection: %s' % format_exc())
