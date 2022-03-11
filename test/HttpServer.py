@@ -1,5 +1,5 @@
-import SimpleHTTPServer
-import SocketServer
+import http.server
+import socketserver
 import logging
 import threading
 
@@ -11,8 +11,8 @@ class HttpServer:
 
     def __init__(self, port):
         self.handler = ServerHandler
-        SocketServer.TCPServer.allow_reuse_address = True  # Do not hold on to the port when done with resource
-        self.httpd = SocketServer.TCPServer(("", port), self.handler)
+        socketserver.TCPServer.allow_reuse_address = True  # Do not hold on to the port when done with resource
+        self.httpd = socketserver.TCPServer(("", port), self.handler)
         self.thread = threading.Thread(target=self.thread)
         self.thread.setDaemon(True)
         self.thread.start()
@@ -29,15 +29,15 @@ class HttpServer:
         logging.warning("=========== HTTP Server Shut Down ============")
 
 
-class ServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
+class ServerHandler(http.server.SimpleHTTPRequestHandler):
     data = None
 
     def do_GET(self):
-        SimpleHTTPServer.SimpleHTTPRequestHandler.do_GET(self)
+        http.server.SimpleHTTPRequestHandler.do_GET(self)
 
     # noinspection PyPep8Naming
     def do_POST(self):
-        ServerHandler.data = self.rfile.read(int(self.headers.getheader('Content-Length')))
+        ServerHandler.data = self.rfile.read(int(self.headers.get('Content-Length')))
         logging.warning(ServerHandler.data)
         self.send_response(200)
 

@@ -11,7 +11,6 @@ init_method = None
 write_method = None
 write_data = None
 
-
 def register_config(config):
     global config_method
     config_method = config
@@ -33,16 +32,16 @@ def get_data():
 
 
 def info(message):
-    print >> sys.stderr, 'INFO: %s' % message
+    print('INFO: ', message, file=sys.stderr)
 
 
 def error(message):
-    print >> sys.stderr, 'ERROR: %s' % message
+    print('ERROR: ', message, file=sys.stderr)
 
 
 def debug(message):
-    print >> sys.stderr, 'DEBUG: %s' % message
+    print('DEBUG: ', message, file=sys.stderr)
 
 
 def warning(message):
-    print >> sys.stderr, 'WARNING: %s' % message
+    print('WARNING: ', message, file=sys.stderr)

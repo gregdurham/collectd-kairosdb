@@ -18,10 +18,9 @@
 import collectd
 import traceback
 import socket
-import httplib
+import http.client
 import imp
 import os
-from string import maketrans
 from time import time
 import datetime
 from traceback import format_exc
@@ -101,9 +100,9 @@ class KairosdbWriter:
         parentheses and quotes. Convert to lower case if configured to do so.
         """
         field = field.strip()
-        trans = maketrans(' .', self.metric_separator * 2)
-        field = field.translate(trans, '()')
-        field = field.replace('"', '')
+        trans = field.maketrans(' .', self.metric_separator * 2)
+        field = field.translate(trans)
+        field = field.replace('"', '').replace('(', '').replace(')', '')
         if self.lowercase_metric_names:
             field = field.lower()
         return field
@@ -222,7 +221,7 @@ class KairosdbWriter:
         if not data['conn'] and self.protocol == 'http':
             try:
                 collectd.info("connecting pid=%d host=%s port=%s proto=%s http_timeout=%d" % (os.getpid(), data['host'], data['port'], self.protocol, self.http_timeout))
-                data['conn'] = httplib.HTTPConnection(data['host'], data['port'], timeout=self.http_timeout)
+                data['conn'] = http.client.HTTPConnection(data['host'], data['port'], timeout=self.http_timeout)
                 return True
             except:
                 collectd.error('error connecting to http connection: %s' % format_exc())
@@ -231,7 +230,7 @@ class KairosdbWriter:
         elif not data['conn'] and self.protocol == 'https':
             try:
                 collectd.info("connecting pid=%d host=%s port=%s proto=%s http_timeout=%d" % (os.getpid(), data['host'], data['port'], self.protocol, self.http_timeout))
-                data['conn'] = httplib.HTTPSConnection(data['host'], data['port'], timeout=self.http_timeout)
+                data['conn'] = http.client.HTTPSConnection(data['host'], data['port'], timeout=self.http_timeout)
                 return True
             except:
                 collectd.error('error connecting to https connection: %s' % format_exc())
@@ -278,7 +277,7 @@ class KairosdbWriter:
                 if self.protocol == 'telnet':
                     data['conn'].sendall(s)
                     result = True
-            except socket.error, e:
+            except socket.error as e:
                 self.reset_connection(data)
                 if isinstance(e.args, tuple):
                     collectd.warning('kairosdb_writer: socket error %d' % e[0])
@@ -333,22 +332,22 @@ class KairosdbWriter:
                         exit_code = False
                         self.samples_error += 1
 
-                except httplib.ImproperConnectionState, e:
-                    collectd.error('Lost connection to kairosdb server: %s' % e.message)
+                except http.client.ImproperConnectionState as e:
+                    collectd.error('Lost connection to kairosdb server: {0}'.format(e))
                     self.reset_connection(data)
                     exit_code = False
                     self.samples_error += 1
 
-                except httplib.HTTPException, e:
-                    collectd.error('Error sending http data: %s' % e.message)
+                except http.client.HTTPException as e:
+                    collectd.error('Error sending http data: {0}'.format(e))
                     if response:
                         collectd.error(response)
                     self.reset_connection(data)
                     exit_code = False
                     self.samples_error += 1
 
-                except Exception, e:
-                    collectd.error('Error sending http data: %s' % str(e))
+                except Exception as e:
+                    collectd.error('Error sending http data: {0}'.format(e))
                     self.reset_connection(data)
                     exit_code = False
                     self.samples_error += 1
@@ -462,7 +461,7 @@ class KairosdbWriter:
     def kairosdb_write_telnet_metrics(self, data, types_list, timestamp, values, name, tags):
         tag_string = ""
 
-        for tn, tv in tags.iteritems():
+        for tn, tv in tags.items():
             tag_string += "%s=%s " % (tn, tv)
 
         lines = []
@@ -503,7 +502,7 @@ class KairosdbWriter:
                 json += '"tags": {'
 
                 first = True
-                for tn, tv in tags.iteritems():
+                for tn, tv in tags.items():
                     if first:
                         first = False
                     else:
